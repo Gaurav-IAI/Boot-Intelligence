@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}{{ ac_label(o.ac) }}{% endblock %}
+{% block body %}
+{% set ac = o.ac %}{% set cur = av.is_current %}
+{% if cur %}{{ ui.ctx('cur', 'Current constituency — 2026') }}{% else %}{{ ui.ctx('hist', 'Historical electoral roll — ' ~ (av.roll_years|join(', ') or ac.delimitation)) }}{% endif %}
+<h1>{% if cur %}AC {{ ac.ac_number }} — {{ ac.ac_name|upper }}{% else %}Historical AC {{ ac.ac_number }} — {{ ac.ac_name }} ({{ ac.delimitation }}){% endif %}</h1>
+<div class="subhead">{{ o.district.district_name }}, {{ o.state.state_name if o.state else '' }}{% if cur and ac.ac_name_local %} · {{ ac.ac_name_local }}{% endif %}</div>
+{% if not cur %}<div class="panel hist mt"><p>This is the {{ ac.delimitation }}-delimitation constituency. Constituency numbers were
+  reassigned by the 2008 delimitation, so it is not the current AC {{ ac.ac_number }}{% if same_number %}
+  (<a href="/ac/{{ same_number.id }}">{{ same_number.ac_name }}</a>){% endif %}.</p></div>{% endif %}
+
+<div class="avail3">
+{% if cur %}
+  <div><span class="l">Current polling-station data</span>
+    {% if av.current_stations %}<b>{{ av.current_stations|n }} polling stations</b>{% else %}<b class="na">Not yet ingested</b>{% endif %}</div>
+  <div><span class="l">Historical election data</span>
+    {% if av.result_records %}<b>{{ av.result_years|join(', ') }} Form 20 — {{ av.result_records|n }} booth records</b>{% else %}<b class="na">Not available in current POC</b>{% endif %}</div>
+  <div><span class="l">Current electoral-roll data</span>
+    {% if av.current_roll_records %}<b>{{ av.current_roll_records|n }} records</b>{% else %}<b class="na">Not available from the current public source</b>{% endif %}</div>
+{% else %}
+  <div><span class="l">Historical electoral roll</span>
+    {% if av.historical_roll_records %}<b>{{ av.roll_years|join(', ') }} roll — {{ av.historical_roll_records|n }} records</b>{% else %}<b class="na">Not ingested</b>{% endif %}</div>
+  <div><span class="l">Historical election data</span><b class="na">Not available for the {{ ac.delimitation }} delimitation</b></div>
+  <div><span class="l">Linked current constituency</span>
+    {% if av.linked_acs %}<b>{% for l in av.linked_acs %}{% if l.id %}<a href="/ac/{{ l.id }}">AC {{ l.ac_number }} {{ l.name }}</a>{% else %}AC {{ l.ac_number }} {{ l.name }}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</b>
+    <span class="muted small">via official booth mapping — not the same identity</span>{% else %}<b class="na">None linked</b>{% endif %}</div>
+{% endif %}
+</div>
+{% set mtotal = av.mapping_verified + av.mapping_review + av.mapping_unmapped %}
+{% if mtotal %}
+<p class="muted mt">Historical booth mapping: <a href="/ac/{{ ac.id }}/changes">{{ mtotal }} village-level relationships</a> —
+  {{ av.mapping_verified }} verified · {{ av.mapping_review }} review required · {{ av.mapping_unmapped }} not mapped.</p>
+{% endif %}
+
+<section>
+  <div class="sh"><h2>Constituency snapshot</h2></div>
+  <div class="cards">
+  {% if cur %}
+    {{ ui.kpi(av.current_stations|n if av.current_stations else 'Not yet ingested', 'Polling stations', 'current list (SIR-2026)' if av.current_stations else None, not av.current_stations) }}
+    {{ ui.kpi(av.result_records|n if av.result_records else 'Not available in current POC', 'Historical result records', 'Form 20, polling-station level' if av.result_records else None, not av.result_records) }}
+    {{ ui.kpi(av.result_years|join(', ') if av.result_years else 'Not available in current POC', 'Historical elections', 'Vidhan Sabha' if av.result_years else None, not av.result_years) }}
+    {{ ui.kpi(av.current_roll_records|n if av.current_roll_records else 'Not available', 'Current voter roll', 'from the current public source' if not av.current_roll_records else None, not av.current_roll_records) }}
+  {% else %}
+    {{ ui.kpi(av.historical_stations|n, 'Historical parts (booths)', av.roll_years|join(', ') ~ ' electoral roll') }}
+    {{ ui.kpi(av.historical_roll_records|n if av.historical_roll_records else 'Not ingested', 'Elector records', 'extracted from the published roll' if av.historical_roll_records else None, not av.historical_roll_records) }}
+    {{ ui.kpi(av.roll_years|join(', ') if av.roll_years else 'Not available', 'Roll year', None, not av.roll_years) }}
+    {{ ui.kpi('Not available in current POC', 'Historical results', None, True) }}
+  {% endif %}
+  </div>
+</section>
+
+<section>
+  <div class="two">
+    <div class="card"><h3>Key observations</h3>
+      <ul class="obs mt">{% for x in observations %}<li>{{ x }}</li>{% endfor %}</ul></div>
+    <div class="card"><h3>Data availability</h3>{{ ui.matrix(av) }}</div>
+  </div>
+</section>
+
+<section id="booths">
+  <div class="sh"><h2>Booth directory</h2>
+    <span class="muted">{% if cur %}{{ o.rows|length }} current polling stations{% else %}{{ o.rows|length }} parts · 2003 electoral roll{% endif %} · click a row for details</span></div>
+  {% if o.rows %}
+  <div class="tablecard">
+    <div class="tools" data-for="dir"><input type="search" placeholder="Search part number, polling station or area"><span class="count" data-count></span></div>
+    <div class="scroll-y">
+    <table class="sortable" id="dir">
+    {% if cur %}
+      <thead><tr><th class="num" data-type="num" style="width:70px">Part</th><th data-type="text">Polling station</th>
+        <th data-type="text">Areas covered</th>
+        {% if av.result_records %}<th>{{ av.result_years|join(', ') }} result</th>{% endif %}
+        {% if av.mapping_status != 'none' %}<th data-type="text">2003 mapping</th>{% endif %}</tr></thead>
+      <tbody>
+      {% for r in o.rows %}
+      <tr data-href="/station/{{ r.station_id }}" data-search="{{ (r.part_number|string ~ ' ' ~ (r.name or '') ~ ' ' ~ (r.name_local or '') ~ ' ' ~ (r.areas or ''))|lower }}">
+        <td class="num" data-v="{{ r.part_number }}"><a href="/station/{{ r.station_id }}"><strong>{{ r.part_number }}</strong></a></td>
+        <td>{{ r.name or r.name_local or '—' }}{% if r.name_local and r.name_local != r.name %}<span class="sub">{{ r.name_local|truncate(70) }}</span>{% endif %}</td>
+        <td class="small">{{ (r.areas or '—')|truncate(60) }}</td>
+        {% if av.result_records %}<td class="muted small">Available separately</td>{% endif %}
+        {% if av.mapping_status != 'none' %}<td data-v="{{ {'verified': 0, 'review': 1}.get(r.mapping_status, 2) }}">{{ ui.mapstatus(r.mapping_status, r.mapping_note) }}</td>{% endif %}
+      </tr>
+      {% endfor %}
+      </tbody>
+    {% else %}
+      <thead><tr><th class="num" data-type="num" style="width:70px">Part</th><th data-type="text">Polling station (2003)</th>
+        <th class="num" data-type="num">Electors</th><th data-type="text">Data status</th><th data-type="text">Mapping</th></tr></thead>
+      <tbody>
+      {% for r in o.rows %}{% set clean = r.stats and not r.stats.invalid_rows and not r.stats.serial_outliers %}
+      <tr data-href="/station/{{ r.station_id }}" data-search="{{ (r.part_number|string ~ ' ' ~ (r.name or '') ~ ' ' ~ (r.areas or ''))|lower }}">
+        <td class="num" data-v="{{ r.part_number }}"><a href="/station/{{ r.station_id }}"><strong>{{ r.part_number }}</strong></a></td>
+        <td>{{ r.name or '—' }}<span class="sub">{{ (r.areas or '')|truncate(70) }}</span></td>
+        <td class="num" data-v="{{ r.agg.total if r.agg else '' }}"><strong>{{ r.agg.total|n if r.agg else '—' }}</strong></td>
+        <td data-v="{{ 'a' if clean else 'b' }}">{% if not r.agg %}<span class="muted small">No roll</span>{% elif clean %}{{ ui.chip('good', 'Clean') }}{% else %}{{ ui.chip('warn', 'Review required') }}{% endif %}</td>
+        <td>{{ ui.mapstatus(r.mapping_status, r.mapping_note) }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    {% endif %}
+    </table>
+    </div>
+  </div>
+  {% else %}
+  <div class="panel"><p>The polling-station list for this constituency has not been ingested yet.</p></div>
+  {% endif %}
+</section>
+
+{% for e in o.elections %}
+<section id="results">
+  <div class="sh"><h2>{{ e.year }} Assembly election</h2>{{ ui.ctx('hist', 'Historical result — ' ~ e.year) }}</div>
+  <p class="lede" style="margin:0 0 12px">Polling-station-wise Form 20 data is available for {{ e.booths|n }} records.
+    Historical booth numbering is retained as published in the {{ e.year }} result source and is not automatically
+    mapped to current 2026 polling stations.</p>
+  <div class="tablecard">
+    <div class="scroll-y short">
+    <table>
+      <thead><tr><th class="num" style="width:70px">Part</th><th>Polling station ({{ e.year }})</th><th class="num">Total votes</th>
+        <th class="num">Top vote</th><th class="num">Second vote</th><th class="num">Margin</th></tr></thead>
+      <tbody>
+      {% for r in o.results if r.year == e.year %}{% set m = r.margin %}
+      <tr data-href="/result/{{ r.id }}">
+        <td class="num"><a href="/result/{{ r.id }}"><strong>{{ r.part_number }}</strong></a></td>
+        <td>{{ r.station_name or '—' }}</td>
+        <td class="num">{{ r.total_votes|n }}</td>
+        <td class="num">{{ m.leader_votes|n if m else '—' }}</td>
+        <td class="num">{{ m.runner_up_votes|n if m else '—' }}</td>
+        <td class="num">{% if m %}<strong>{{ m.margin|n }}</strong>{% else %}{{ ui.chip('warn', 'Review') }}{% endif %}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+  <div class="actions"><a class="btn primary" href="/ac/{{ ac.id }}/performance">Open historical results →</a></div>
+</section>
+{% endfor %}
+{% endblock %}

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Constituencies{% endblock %}
+{% block body %}
+<h1>CONSTITUENCIES</h1>
+<div class="subhead">{{ s.acs_current }} current assembly constituencies across {{ s.districts }} districts
+  {% if historical %}· {{ historical|length }} historical constituency record{{ 's' if historical|length > 1 }}{% endif %}</div>
+
+<div class="panel mt"><p>The current (2026) electoral roll is not available from the current public source for any
+  constituency. Booth-level data is shown where it has been ingested.</p></div>
+
+{% for r in s.district_rows if by_district.get(r.district.id) %}
+<section>
+  <div class="sh"><h2><a href="/district/{{ r.district.id }}">{{ r.district.district_name }}</a></h2>
+    <span class="muted">{{ by_district[r.district.id]|length }} constituencies</span></div>
+  <div class="tablecard">
+  <table>
+    <thead><tr><th class="num" style="width:80px">AC</th><th>Name</th><th class="num">Polling stations</th><th>Available data</th></tr></thead>
+    <tbody>
+    {% for a in by_district[r.district.id] %}
+    <tr data-href="/ac/{{ a.ac.id }}">
+      <td class="num"><strong>{{ a.ac.ac_number }}</strong></td>
+      <td><a href="/ac/{{ a.ac.id }}">{{ a.ac.ac_name }}</a> <span class="muted small">{{ a.ac.ac_name_local or '' }}</span></td>
+      <td class="num">{{ a.current_stations|n if a.current_stations else '—' }}</td>
+      <td><div class="chips">
+        {% if a.current_stations %}{{ ui.chip('good', 'Current polling stations') }}{% endif %}
+        {% if a.result_records %}{{ ui.chip('good', 'Historical results ' ~ a.result_years|join(', ')) }}{% endif %}
+        {% if a.mapping_status != 'none' %}{{ ui.chip('warn', 'Booth mapping (partial)') }}{% endif %}
+        {% if not (a.current_stations or a.result_records) %}<span class="muted small">Constituency record only</span>{% endif %}
+      </div></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endfor %}
+
+{% if historical %}
+<section>
+  <div class="sh"><h2>Historical constituencies</h2>{{ ui.ctx('hist', 'Historical — 2003 delimitation') }}</div>
+  <div class="panel hist"><p>Constituency numbers were reassigned after the 2003 delimitation. These records are
+    not the same constituencies as current ACs with the same number.</p></div>
+  <div class="accgrid mt">{% for a in historical %}{{ ui.ac_card(a) }}{% endfor %}</div>
+</section>
+{% endif %}
+{% endblock %}

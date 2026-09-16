@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Dashboard{% endblock %}
+{% block body %}
+<div class="eyebrow">From official election documents to booth-level intelligence</div>
+<h1 class="xl">UTTARAKHAND</h1>
+<div class="h1sub">Election Data Intelligence</div>
+<p class="lede">Booth-level election data, historical results, mapping and data-quality intelligence — from official sources.</p>
+
+<div class="bigstats">
+  <div class="bs"><div class="v">{{ s.districts }}</div><div class="l">Districts</div></div>
+  <div class="bs"><div class="v">{{ s.acs_current }}</div><div class="l">Assembly Constituencies</div></div>
+  <div class="bs"><div class="v">{{ s.stations_current|n }}</div><div class="l">Current Polling Stations</div>
+    <div class="s">current list ingested for {{ s.acs_with_stations }} of {{ s.acs_current }} constituencies</div></div>
+</div>
+
+<div class="flow" aria-label="How the data is built">
+  <div class="step"><b>Official data</b><span>ECI &amp; CEO Uttarakhand sources</span></div><div class="arrow">→</div>
+  <div class="step"><b>Structured</b><span>State → district → AC → booth</span></div><div class="arrow">→</div>
+  <div class="step"><b>Validated</b><span>{{ s.electors|n }} records checked</span></div><div class="arrow">→</div>
+  <div class="step"><b>Mapped</b><span>{{ mapping.values()|sum }} village-level mapping relationships</span></div><div class="arrow">→</div>
+  <div class="step end"><b>Booth-level view</b><span>constituency and booth pages</span></div>
+</div>
+
+{% set years = (result_acs|map(attribute='result_years')|sum(start=[]))|unique|sort|join(', ') %}
+<section>
+  <div class="sh"><h2>What this POC contains</h2></div>
+  <div class="tablecard">
+  <table>
+    <thead><tr><th>Data</th><th>Coverage in this POC</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Current polling stations</strong> {{ ui.ctx('cur', 'Current 2026') }}</td>
+        <td>{{ s.stations_current|n }} polling stations across {{ s.acs_with_stations }} of {{ s.acs_current }} constituencies</td>
+        <td>{{ ui.chip('good', 'Available') }}</td></tr>
+      <tr><td><strong>Current voter roll</strong> {{ ui.ctx('cur', 'Current 2026') }}</td>
+        <td>Not available from the current public source</td>
+        <td>{{ ui.chip('plain', 'Not available') }}</td></tr>
+      {% for a in historical if a.historical_roll_records %}
+      <tr><td><strong>Historical electoral roll</strong> {{ ui.ctx('hist', 'Historical ' ~ a.roll_years|join(', ')) }}</td>
+        <td><a href="/ac/{{ a.ac.id }}">Historical AC {{ a.ac.ac_number }} — {{ a.ac.ac_name }}</a>: {{ a.historical_roll_records|n }} records from {{ a.historical_parts_with_roll }} parts</td>
+        <td>{{ ui.chip('warn', 'Sample parts') }}</td></tr>
+      {% endfor %}
+      {% if result_acs %}
+      <tr><td><strong>Historical results (Form 20)</strong> {{ ui.ctx('hist', 'Historical ' ~ years) }}</td>
+        <td>{{ s.results|n }} polling-station result rows across {{ result_acs|length }} of {{ s.acs_current }} constituencies</td>
+        <td>{{ ui.chip('good' if result_acs|length == s.acs_current else 'warn', 'Available' if result_acs|length == s.acs_current else 'Partial') }}</td></tr>
+      {% endif %}
+      {% set mtotal = mapping.values()|sum %}
+      {% if featured and mtotal %}
+      <tr><td><strong>Historical-to-current booth mapping</strong></td>
+        <td><a href="/ac/{{ featured.id }}/changes">AC {{ featured.ac_number }} — {{ featured.ac_name }}</a>: {{ mtotal }} village-level relationships —
+          {{ mapping['Verified'] }} verified · {{ mapping['Review Required'] }} review required · {{ mapping['Not Mapped'] }} not mapped</td>
+        <td>{{ ui.chip('warn', 'Partial') }}</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+  </div>
+  <div class="panel mt"><p><strong>Known limitations.</strong> Current 2026 voter-level roll data is not available from the
+    current public source. Historical 2003 roll data and historical Form 20 results are available for the demonstrated
+    datasets. Historical-to-current booth mapping is evidence-based and incomplete.</p></div>
+</section>
+
+<section>
+  <div class="sh"><h2>Districts</h2><a href="/constituencies">All constituencies →</a></div>
+  <div class="tablecard">
+  <table>
+    <thead><tr><th>District</th><th class="num">Assembly constituencies</th><th class="num">Polling stations</th><th>Available data</th></tr></thead>
+    <tbody>
+    {% for r in s.district_rows %}
+    <tr data-href="/district/{{ r.district.id }}">
+      <td><a href="/district/{{ r.district.id }}"><strong>{{ r.district.district_name }}</strong></a>
+          <span class="muted small">{{ r.district.district_name_local or '' }}</span></td>
+      <td class="num">{{ r.acs }}</td>
+      <td class="num">{{ r.stations|n if r.stations else '—' }}</td>
+      <td><div class="chips">
+        {% if r.stations %}{{ ui.chip('good', 'Current polling stations') }}{% endif %}
+        {% if r.has_results %}{{ ui.chip('good', 'Historical results') }}{% endif %}
+        {% if r.has_historical_roll %}{{ ui.chip('good', '2003 electoral roll') }}{% endif %}
+        {% if r.has_mapping %}{{ ui.chip('warn', 'Booth mapping (partial)') }}{% endif %}
+        {% if not (r.stations or r.has_results or r.has_historical_roll) %}<span class="muted small">Constituency list only</span>{% endif %}
+      </div></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Search{% endblock %}
+{% block body %}
+<h1>SEARCH</h1>
+<form action="/search" method="get" class="card mt" style="display:flex;gap:10px;flex-wrap:wrap">
+  <input name="q" value="{{ search_q or '' }}" autofocus placeholder="Search constituency, polling station or part number"
+         style="flex:1 1 260px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font:inherit;min-width:0">
+  <button class="btn primary" type="submit">Search</button>
+</form>
+
+{% if search_q %}
+<section>
+  <div class="sh"><h2>{{ hits|length }} result{{ 's' if hits|length != 1 }} for “{{ search_q }}”</h2></div>
+  {% if hits %}
+  <div class="tablecard">
+  <table>
+    <thead><tr><th>Type</th><th>Result</th><th>Where</th><th>Data</th></tr></thead>
+    <tbody>
+    {% for h in hits %}
+    <tr data-href="{{ h.href }}">
+      <td><span class="chip plain">{{ h.kind }}</span></td>
+      <td><a href="{{ h.href }}"><strong>{{ h.title }}</strong></a></td>
+      <td class="muted small">{{ h.subtitle }}</td>
+      <td class="small">{{ h.detail }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="panel"><p>No constituency, polling station or part matches “{{ search_q }}”.</p></div>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

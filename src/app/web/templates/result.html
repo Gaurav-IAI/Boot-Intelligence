@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Part {{ r.part_number }} · {{ r.year }} result{% endblock %}
+{% block body %}
+{% set m = r.margin %}
+{{ ui.ctx('hist', 'Historical result — ' ~ r.year) }}
+<h1>PART {{ r.part_number }}</h1>
+<div class="subhead">{{ r.station_name or '—' }}</div>
+<div class="subhead small mt">{% if ac %}<a href="/ac/{{ ac.id }}">{{ ac_label(ac) }}</a> · {% endif %}{{ r.year }} Vidhan Sabha election ·
+  {{ r.year }} booth numbering — not current (2026) Part {{ r.part_number }}</div>
+
+<section>
+  {% if not r.verified %}
+  <div class="panel warn">
+    <p><strong>⚠ REVIEW REQUIRED</strong></p>
+    <p><strong>Reason:</strong> {{ r.reliability_note }}</p>
+    <p><strong>Candidate / party interpretation:</strong> Withheld</p>
+  </div>
+  {% endif %}
+  <div class="cards{{ ' mt' if not r.verified }}">
+    {{ ui.kpi(r.total_votes|n, 'Total votes') }}
+    {{ ui.kpi(m.leader_votes|n if m else 'Withheld', 'Top vote', 'candidate name not attributed' if m else 'requires review', not m) }}
+    {{ ui.kpi(m.runner_up_votes|n if m else 'Withheld', 'Second vote', 'candidate name not attributed' if m else 'requires review', not m) }}
+    {{ ui.kpi(m.margin|n if m else 'Withheld', 'Historical vote margin', 'Top two vote columns are tied — a valid zero-margin result' if m and m.margin == 0 else ((m.margin_pct|pct ~ ' of valid votes') if m and m.margin_pct is not none else ('requires review' if not m else None)), not m) }}
+  </div>
+  {% if r.verified %}
+  <div class="mt">{{ ui.chip('good', 'Vote-sum verified') }} <span class="muted small">{{ r.reliability_note }}</span></div>
+  {% endif %}
+</section>
+
+{% if ac %}<div class="actions"><a class="btn" href="/ac/{{ ac.id }}/performance">← All {{ r.year }} results</a></div>{% endif %}
+
+<section>
+  <details class="prov">
+    <summary>View data provenance</summary>
+    <div class="inner"><dl class="kv">
+      <dt>Source</dt><dd>{{ source_label(r.source) }}</dd>
+      <dt>Document</dt><dd><code>{{ r.source_file }}</code> · page {{ r.source_page }}</dd>
+      <dt>Source URL</dt><dd><code>{{ r.source_url }}</code></dd>
+      <dt>Parser version</dt><dd><code>{{ r.parser_version }}</code></dd>
+      <dt>Name decoding confidence</dt><dd>{{ '%.0f'|format((r.confidence or 0) * 100) }}%</dd>
+      <dt>Total valid / rejected / tendered</dt><dd>{{ r.total_valid_votes|n }} / {{ r.rejected_votes|n }} / {{ r.tendered_votes|n }}</dd>
+      {% if r.columns %}<dt>Vote columns (printed order)</dt><dd><code>{{ r.columns|join(', ') }}</code></dd>{% endif %}
+    </dl></div>
+  </details>
+</section>
+{% endblock %}

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}{{ district.district_name }}{% endblock %}
+{% block body %}
+<div class="eyebrow">District · Uttarakhand</div>
+<h1>{{ district.district_name|upper }}</h1>
+<div class="subhead">{{ district.district_name_local or '' }} · {{ current|length }} assembly constituencies</div>
+
+<section>
+  <div class="sh"><h2>Assembly constituencies</h2>{{ ui.ctx('cur', 'Current delimitation') }}</div>
+  {% if current %}
+  <div class="accgrid">{% for a in current %}{{ ui.ac_card(a) }}{% endfor %}</div>
+  {% else %}
+  <div class="panel"><p>No assembly constituencies stored for this district in the current POC.</p></div>
+  {% endif %}
+</section>
+
+{% if historical %}
+<section>
+  <div class="sh"><h2>Historical constituencies</h2>{{ ui.ctx('hist', 'Historical — 2003 delimitation') }}</div>
+  <div class="panel hist"><p>Constituency numbers were reassigned after 2003. A historical AC is not the same
+    constituency as a current AC with the same number.</p></div>
+  <div class="accgrid mt">{% for a in historical %}{{ ui.ac_card(a) }}{% endfor %}</div>
+</section>
+{% endif %}
+{% endblock %}

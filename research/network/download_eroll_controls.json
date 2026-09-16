@@ -1,0 +1,82 @@
+{
+  "text": "| » Skip to Main Content\n|\nAB\nA_B\nA__B\n|\nA-\nA\nA+\nECINET\n  \n \n \nनागरिक सेवा पोर्टल\nCitizen Service Portal\nECINET Mobile App\nDownload From\nElectoral Roll\nState *\nSelect State\nAndaman & Nicobar Islands\nAndhra Pradesh\nArunachal Pradesh\nAssam\nBihar\nChandigarh\nChhattisgarh\nDadra & Nagar Haveli and Daman & Diu\nGoa\nGujarat\nHaryana\nHimachal Pradesh\nJammu and Kashmir\nJharkhand\nKarnataka\nKerala\nLadakh\nLakshadweep\nMadhya Pradesh\nMaharashtra\nManipur\nMeghalaya\nMizoram\nNagaland\nNCT OF Delhi\nOdisha\nPuducherry\nPunjab\nRajasthan\nSikkim\nTamil Nadu\nTelangana\nTripura\nUttar Pradesh\nUttarakhand\nWest Bengal\nYear Of Revision *\n2026\n2025\n2024\nRoll Type *\nSelect Roll\nSIR DraftRoll - 2026\nDistrict\nSelect District\nAlmora\nBageshwar\nChamoli\nChampawat\nDehradun\nHaridwar\nNainital\nPauri Garhwal\nPithoragarh\nRudraprayag\nTehri Garhwal\nUdham Singh Nagar\nUttarkashi\nAssembly Constituency *\nSelect AC\n1 - Purola\n2 - Yamunotri\n3 - Gangotri\n4 - Badrinath\n5 - Tharali\n6 - Karanprayag\n7 - Kedarnath\n8 - Rudraprayag\n9 - Ghansali (S.C.)\n10 - Devprayag\n11 - Narendranagar\n12 - Pratapnagar\n13 - Tehri\n14 - Dhanolti\n15 - Chakrata\n16 - Vikasnagar\n17 - Sahaspur\n18 - Dharmpur\n19 - Raipur\n20 - Rajpur Road\n21 - Dehradun Cantonment\n22 - Mussoorie\n23 - Doiwala\n24 - Rishikesh\n25 - Haridwar\n26 - BHEL Ranipur\n27 - Jwalapur\n28 - Bhagwanpur\n29 - Jhabrera\n30 - Piran Kaliyar\n31 - Roorkee\n32 - Khanpur\n33 - Manglore\n34 - Laksar\n35 - Haridwar Rural\n36 - Yamkeshwar\n37 - Pauri\n38 - Srinagar\n39 - Chaubattakhal\n40 - Lansdowne\n41 - Kotdwar\n42 - Dharchula\n43 - Didihat\n44 - Pithoragarh\n45 - Gangolihat\n46 - Kapkot\n47 - Bageshwar\n48 - Dwarahat\n49 - Salt\n50 - Ranikhet\n51 - Someshwar\n52 - Almora\n53 - Jageshwar\n54 - Lohaghat\n55 - Champawat\n56 - Lalkuan\n57 - Bhimtal\n58 - Nainital\n59 - Haldwani\n60 - Kaladhungi\n61 - Ramnagar\n62 - Jaspur\n63 - Kashipur\n64 - B",
+  "selects": [
+    {
+      "id": "stateCode",
+      "n": "stateCode",
+      "opts": [
+        "Select State",
+        "Andaman & Nicobar Islands",
+        "Andhra Pradesh",
+        "Arunachal Pradesh",
+        "Assam"
+      ]
+    },
+    {
+      "id": "revyear",
+      "n": "revyear",
+      "opts": [
+        "2026",
+        "2025",
+        "2024"
+      ]
+    },
+    {
+      "id": "roleType",
+      "n": "roleType",
+      "opts": [
+        "Select Roll",
+        "SIR DraftRoll - 2026"
+      ]
+    },
+    {
+      "id": "district",
+      "n": "district",
+      "opts": [
+        "Select District",
+        "Almora",
+        "Bageshwar",
+        "Chamoli",
+        "Champawat"
+      ]
+    },
+    {
+      "id": "constituency",
+      "n": "constituency",
+      "opts": [
+        "Select AC",
+        "1 - Purola",
+        "2 - Yamunotri",
+        "3 - Gangotri",
+        "4 - Badrinath"
+      ]
+    },
+    {
+      "id": "langCd",
+      "n": "langCd",
+      "opts": [
+        "Select Language"
+      ]
+    }
+  ],
+  "inputs": [
+    {
+      "id": "captcha",
+      "n": "captcha",
+      "t": "text",
+      "ph": "Enter Captcha"
+    }
+  ],
+  "imgs": [
+    "https://voters.eci.gov.in/ECINet-logo.png",
+    "https://voters.eci.gov.in/static/media/Portallogo.239672214918b407e9c7d3e4312b8ac4.svg",
+    "https://voters.eci.gov.in/static/media/android-store.28346aebccc44857cfc6.png",
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAZoAAAGaAQAAAAAefbjOAAADGUlEQVR4nO2cTW6rShBG",
+    "https://voters.eci.gov.in/static/media/ios-store.505910d7b15324b3ac87.png",
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAZoAAAGaAQAAAAAefbjOAAADHElEQVR4nO2bTW6kMBCF",
+    "data:image/jpg;base64,/9j/4AAQSkZJRgABAgAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8U",
+    "https://voters.eci.gov.in/static/media/refresh.69dd6dde96ea2b06d9887b897bf4219f.svg",
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAAACXBIWXMAAAsTAAALEwEA"
+  ],
+  "hasCaptcha": true
+}

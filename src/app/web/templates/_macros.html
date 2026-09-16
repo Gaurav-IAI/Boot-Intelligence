@@ -1,0 +1,71 @@
+{% macro icon(level) -%}{{ {'good': '✓', 'warn': '!', 'bad': '✕'}[level] }}{%- endmacro %}
+
+{% macro chip(level, text, title='') -%}
+<span class="chip {{ level }}"{% if title %} title="{{ title }}"{% endif %}>{% if level != 'plain' %}<i>{{ icon(level) }}</i>{% endif %}{{ text }}</span>
+{%- endmacro %}
+
+{% macro ctx(kind, text) -%}<span class="ctx {{ kind }}">{{ text }}</span>{%- endmacro %}
+
+{% macro kpi(value, label, sub=None, text=False, tone='') -%}
+<div class="kpi {{ tone }}">
+  <div class="v{{ ' txt' if text }}">{{ value }}</div>
+  <div class="l">{{ label }}</div>
+  {% if sub %}<div class="s">{{ sub }}</div>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro mapstatus(status, title='') -%}
+{% if status in ('verified', 'Verified') %}{{ chip('good', 'Verified', title) }}
+{% elif status in ('review', 'partial', 'Review Required') %}{{ chip('warn', 'Review required', title) }}
+{% else %}<span class="muted small">Not mapped</span>{% endif %}
+{%- endmacro %}
+
+{% macro matrix(av) -%}
+<table class="matrix"><tbody>
+  {% for m in av.matrix() %}
+  <tr><td>{{ m.label }}</td>
+      <td class="st {{ m.state }}" title="{{ m.state }}">{{ {'yes': '✓', 'no': '—', 'partial': '⚠'}[m.state] }}</td>
+      <td class="muted small">{{ m.detail }}</td></tr>
+  {% endfor %}
+</tbody></table>
+{%- endmacro %}
+
+{% macro ac_card(a) -%}
+{% set cur = a.is_current %}
+<a class="acc{{ '' if cur else ' hist' }}" href="/ac/{{ a.ac.id }}">
+  {% if not cur %}<span class="ctx hist">Historical — {{ a.ac.delimitation }}</span>{% endif %}
+  <div class="acno">{{ 'AC' if cur else 'Historical AC' }} {{ a.ac.ac_number }}</div>
+  <div class="name">{{ a.ac.ac_name }}</div>
+  {% if a.ac.ac_name_local and a.ac.ac_name_local != a.ac.ac_name %}<div class="local">{{ a.ac.ac_name_local }}</div>{% endif %}
+  {% if cur %}
+    {% if a.current_stations %}<div class="main">{{ a.current_stations|n }} polling stations</div>
+    {% else %}<div class="main na">Polling stations not yet ingested</div>{% endif %}
+    <ul>
+      <li class="{{ 'yes' if a.result_records else 'no' }}">{{ (a.result_years|join(', ') ~ ' results available') if a.result_records else 'Historical results: not available' }}</li>
+      <li class="{{ 'yes' if a.current_roll_records else 'no' }}">Current voter roll: {{ 'available' if a.current_roll_records else 'not available' }}</li>
+    </ul>
+  {% else %}
+    <div class="main">{{ a.historical_stations }} historical parts</div>
+    <ul>
+      <li class="{{ 'yes' if a.historical_roll_records else 'no' }}">{{ (a.roll_years|join(', ') ~ ' roll — ' ~ a.historical_roll_records|n ~ ' records') if a.historical_roll_records else 'Historical roll: not ingested' }}</li>
+      <li class="{{ 'yes' if a.result_records else 'no' }}">Historical results: {{ 'available' if a.result_records else 'not available' }}</li>
+    </ul>
+  {% endif %}
+</a>
+{%- endmacro %}
+
+{% macro gender(m, f, o) -%}
+{% set t = m + f + o %}
+{% if t %}
+<div class="gbar" role="img" aria-label="Male {{ m }}, female {{ f }}, unknown {{ o }}">
+  {% if m %}<i class="s1" style="width:{{ m / t * 100 }}%" title="Male {{ m|n }}"></i>{% endif %}
+  {% if f %}<i class="s2" style="width:{{ f / t * 100 }}%" title="Female {{ f|n }}"></i>{% endif %}
+  {% if o %}<i class="s0" style="width:{{ o / t * 100 }}%" title="Unknown {{ o|n }}"></i>{% endif %}
+</div>
+<div class="legend">
+  <span><i class="s1"></i>Male {{ '%.1f'|format(m / t * 100) }}%</span>
+  <span><i class="s2"></i>Female {{ '%.1f'|format(f / t * 100) }}%</span>
+  {% if o %}<span><i class="s0"></i>Unknown {{ o|n }}</span>{% endif %}
+</div>
+{% endif %}
+{%- endmacro %}

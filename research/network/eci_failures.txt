@@ -1,0 +1,63 @@
+
+
+CONSOLE
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/': Unrecognized type: cache.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/': Unrecognized type: cookie.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/': Unrecognized type: storage.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/': Unrecognized type: executionContexts.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/': No recognized types specified.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/transliteration/js/Fonts/css/cdac-gist-fonts.css': Unrecognized type: cache.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/transliteration/js/Fonts/css/cdac-gist-fonts.css': Unrecognized type: cookie.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/transliteration/js/Fonts/css/cdac-gist-fonts.css': Unrecognized type: storage.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/transliteration/js/Fonts/css/cdac-gist-fonts.css': Unrecognized type: executionContexts.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/transliteration/js/Fonts/css/cdac-gist-fonts.css': No recognized types specified.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/bootstrap.min.css': Unrecognized type: cache.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/bootstrap.min.css': Unrecognized type: cookie.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/bootstrap.min.css': Unrecognized type: storage.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/bootstrap.min.css': Unrecognized type: executionContexts.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/bootstrap.min.css': No recognized types specified.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/googleapi-font.css': Unrecognized type: cache.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/googleapi-font.css': Unrecognized type: cookie.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/googleapi-font.css': Unrecognized type: storage.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/googleapi-font.css': Unrecognized type: executionContexts.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/googleapi-font.css': No recognized types specified.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/font-googleapis-css.css': Unrecognized type: cache.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/font-googleapis-css.css': Unrecognized type: cookie.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/font-googleapis-css.css': Unrecognized type: storage.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/font-googleapis-css.css': Unrecognized type: executionContexts.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/font-googleapis-css.css': No recognized types specified.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/font-awesome.min.css': Unrecognized type: cache.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/font-awesome.min.css': Unrecognized type: cookie.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/font-awesome.min.css': Unrecognized type: storage.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/font-awesome.min.css': Unrecognized type: executionContexts.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/font-awesome.min.css': No recognized types specified.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/transliteration/js/jquery.js': Unrecognized type: cache.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/transliteration/js/jquery.js': Unrecognized type: cookie.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/transliteration/js/jquery.js': Unrecognized type: storage.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/transliteration/js/jquery.js': Unrecognized type: executionContexts.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/transliteration/js/jquery.js': No recognized types specified.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/transliteration/js/CDAC-Typing.js': Unrecognized type: cache.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/transliteration/js/CDAC-Typing.js': Unrecognized type: cookie.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/transliteration/js/CDAC-Typing.js': Unrecognized type: storage.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/transliteration/js/CDAC-Typing.js': Unrecognized type: executionContexts.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/transliteration/js/CDAC-Typing.js': No recognized types specified.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/transliteration/js/CDAC-Typing_A.js': Unrecognized type: cache.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/transliteration/js/CDAC-Typing_A.js': Unrecognized type: cookie.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/transliteration/js/CDAC-Typing_A.js': Unrecognized type: storage.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/transliteration/js/CDAC-Typing_A.js': Unrecognized type: executionContexts.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/Packages/transliteration/js/CDAC-Typing_A.js': No recognized types specified.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/static/css/main.b6570e16.css': Unrecognized type: cache.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/static/css/main.b6570e16.css': Unrecognized type: cookie.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/static/css/main.b6570e16.css': Unrecognized type: storage.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/static/css/main.b6570e16.css': Unrecognized type: executionContexts.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/static/css/main.b6570e16.css': No recognized types specified.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/angular/polyfills.js': Unrecognized type: cache.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/angular/polyfills.js': Unrecognized type: cookie.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/angular/polyfills.js': Unrecognized type: storage.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/angular/polyfills.js': Unrecognized type: executionContexts.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/angular/polyfills.js': No recognized types specified.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/angular/runtime.js': Unrecognized type: cache.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/angular/runtime.js': Unrecognized type: cookie.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/angular/runtime.js': Unrecognized type: storage.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/angular/runtime.js': Unrecognized type: executionContexts.
+warning: Clear-Site-Data header on 'https://voters.eci.gov.in/angular/runtime.js': No recognized types specified.

@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Data quality{% endblock %}
+{% block body %}
+{% macro pl(n, one, many) %}{{ n|n }} {{ one if n == 1 else many }}{% endmacro %}
+{% set t = totals %}
+<h1>DATA QUALITY</h1>
+<p class="lede">The system does not just extract data; it also tells us where the data needs verification.</p>
+<p class="muted small">Source: CEO Uttarakhand historical electoral-roll documents (2003). The extraction, validation and
+  coverage metrics on this page are produced by this system; they are not published by CEO Uttarakhand.</p>
+
+<section>
+  <div class="cards c5">
+    {{ ui.kpi(t.total|n, 'Records extracted', 'from ' ~ q.rolls ~ ' source documents (2003 electoral roll)') }}
+    {{ ui.kpi((t.mean_confidence * 100)|pct(2) if t.mean_confidence is not none else '—', 'Mean extraction confidence', 'Average confidence assigned during extraction; it is not a guarantee that every field is correct.') }}
+    {{ ui.kpi(t.invalid|n, 'Validation flags', t.duplicates|n ~ ' duplicates · ' ~ t.other_invalid|n ~ ' other validation issues') }}
+    {{ ui.kpi(t.duplicates|n, 'Duplicate records', 'Duplicates are retained for review rather than silently removed.') }}
+    {{ ui.kpi(t.provenance_pct|pct(0), 'Records with provenance', 'Every extracted record retains source document, page and raw text.') }}
+  </div>
+</section>
+
+<section>
+  <div class="sh"><h2>Clean vs review</h2>{{ ui.ctx('hist', 'Historical electoral roll — 2003') }}</div>
+  <p class="muted" style="margin:-4px 0 12px">Records marked Clean passed the current validation checks. Records marked
+    Review require human verification.</p>
+  <div class="qcols">
+    <div class="qbox">
+      <div class="qhead good"><div>✓ Clean<div class="qcount">{{ pl(clean|length, 'part', 'parts') }}</div></div></div>
+      {% for row in clean %}{% set s = row.stats %}
+      <div class="qitem">
+        <h3><a href="/station/{{ row.station.id }}">Part {{ s.part_number }}</a> <a class="muted small" href="/ac/{{ row.station.ac_id }}">Historical AC {{ s.ac_number }} {{ s.ac_name }} (2003)</a></h3>
+        <ul>
+          <li>{{ pl(s.total_electors, 'record', 'records') }}</li>
+          <li>{{ pl(s.invalid_rows, 'validation failure', 'validation failures') }}</li>
+          <li>{{ pl(s.duplicate_rows, 'duplicate', 'duplicates') }}</li>
+          <li>{{ '%.2f'|format(s.mean_confidence * 100) }}% mean confidence</li>
+        </ul>
+      </div>
+      {% else %}<div class="qitem muted">No part is fully clean.</div>{% endfor %}
+    </div>
+    <div class="qbox">
+      <div class="qhead warn"><div>! Review required<div class="qcount">{{ pl(review|length, 'part', 'parts') }}</div></div></div>
+      {% for row in review %}{% set s = row.stats %}
+      <div class="qitem">
+        <h3><a href="/station/{{ row.station.id }}">Part {{ s.part_number }}</a> <a class="muted small" href="/ac/{{ row.station.ac_id }}">Historical AC {{ s.ac_number }} {{ s.ac_name }} (2003)</a></h3>
+        <ul>
+          <li>{{ pl(s.total_electors, 'record', 'records') }} extracted</li>
+          <li>{{ pl(s.duplicate_rows, 'duplicate', 'duplicates') }}</li>
+          <li>{{ pl(s.invalid_rows, 'validation failure', 'validation failures') }}</li>
+          {% if s.low_confidence_rows %}<li>{{ pl(s.low_confidence_rows, 'low-confidence row', 'low-confidence rows') }}</li>{% endif %}
+          {% if s.serial_outliers %}<li>{{ pl(s.serial_outliers|length, 'serial anomaly', 'serial anomalies') }} (serial {{ s.serial_outliers|join(', ') }})</li>{% endif %}
+          {% if s.serial_gaps %}<li>{{ pl(s.serial_gaps, 'serial number', 'serial numbers') }} not printed in source</li>{% endif %}
+        </ul>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="sh"><h2>Other checks</h2></div>
+  <div class="cards c3">
+    <div class="kpi{{ ' warn' if form20.review else ' good' }}">
+      <div class="v">{{ form20.verified|n }} / {{ form20.rows|n }}</div>
+      <div class="l">Form 20 result rows verified</div>
+      <div class="s">Across {{ form20.acs }} constituencies with available historical results.</div>
+      <div class="s"><strong>{{ form20.review|n }} {{ 'requires' if form20.review == 1 else 'require' }} review</strong></div>
+      <div class="s">Per-constituency figures are available on the individual Historical Results pages.</div>
+    </div>
+    {% set mtotal = mapping.values()|sum %}
+    <div class="kpi{{ ' warn' if mapping['Review Required'] else ' good' }}">
+      <div class="v">{{ mapping['Verified'] }} / {{ mtotal }}</div>
+      <div class="l">Booth mapping relationships verified</div>
+      <div class="s">{{ mapping['Verified'] }} Verified · {{ mapping['Review Required'] }} Review Required · {{ mapping['Not Mapped'] }} Not Mapped</div>
+      <div class="s">Mapping is evidence-based at the village/area relationship level; these are not necessarily one-to-one
+        historical-to-current booth matches.</div>
+      {% if nav_ac %}<div class="s"><a href="/ac/{{ nav_ac }}/changes">Open Booth Mapping →</a></div>{% endif %}
+    </div>
+    <div class="kpi">
+      <div class="v">{{ '%.2f'|format(q.extraction_rate) }}%</div>
+      <div class="l">Extraction coverage against the source serial range</div>
+      <div class="s">{{ q.extracted_total|n }} records extracted against {{ q.official_total|n }} as the highest serial
+        number printed in the source.</div>
+      <div class="s">This {{ q.official_total|n }} figure is derived from the highest printed serial number; it is not an
+        independently published official electorate total.</div>
+    </div>
+  </div>
+</section>
+{% endblock %}

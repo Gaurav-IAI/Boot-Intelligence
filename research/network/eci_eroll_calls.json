@@ -1,0 +1,176 @@
+[
+  {
+    "url": "https://gateway-voters.eci.gov.in/api/v1/captcha-service/getCaptcha/EROLL",
+    "method": "GET",
+    "status": 200,
+    "request_headers": {
+      "sec-ch-ua-platform": "\"Windows\"",
+      "platform-type": "ECIWEB",
+      "referer": "",
+      "accept-language": "en-IN",
+      "sec-ch-ua": "\"Not=A?Brand\";v=\"99\", \"HeadlessChrome\";v=\"151\", \"Chromium\";v=\"151\"",
+      "sec-ch-ua-mobile": "?0",
+      "applicationname": "VSP",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.7922.34 Safari/537.36",
+      "appname": "VSP",
+      "channelidobo": "VSP"
+    },
+    "post_data": null,
+    "response_sample": null
+  },
+  {
+    "url": "https://gateway-voters.eci.gov.in/api/v1/printing-publish/get-publish-eroll-type?stateCd=z54Fm_ApAwj6O16JKXj-A9tomo2i&year=3_0FlZlhd02KBhhF01ZLkHpP6iY&misKey=z4hl7J54IqFOwTP_rzwaAbdeoAwaPhzINg-9KtAr2fQsqQ",
+    "method": "GET",
+    "status": 200,
+    "request_headers": {
+      "accept_yek": "i580zUiijt53u4Nx6zsKzBqrrDxoK62Ke7jEkTMKsGG_kPjlI0slSKAm861sHBBkZkzmCA45IhpzM12s3jXbnhd0-E7woELpLoBZ70UwKw1wthRZDOre2aZQxwhbX9c1Zfgzm3VCtpJdSM25n6WYH7P7yZdPNhwTR3AQXRJz5FXySIgVqTlfyI09yTDSanQGow-X2u-WEb6ILF3utQuPSfLoa5Kq92djeUOh8tT2qZPXJHKQJQRi-1-L5JEeok5AN3V10WEyfatqYWj6BAsHL80FjFZg8qW_Ljbv4HAa_8gaaFyMRMi6PGnwJ0xzy--FOJKtrQplDDlA5A_aqq4Caw",
+      "sec-ch-ua-platform": "\"Windows\"",
+      "platform-type": "ECIWEB",
+      "accept_rotcev": "fGdf7-_U8xY9vuzj",
+      "referer": "",
+      "accept-language": "en-IN",
+      "sec-ch-ua": "\"Not=A?Brand\";v=\"99\", \"HeadlessChrome\";v=\"151\", \"Chromium\";v=\"151\"",
+      "sec-ch-ua-mobile": "?0",
+      "applicationname": "VSP",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.7922.34 Safari/537.36",
+      "channelidobo": "VSP"
+    },
+    "post_data": null,
+    "response_sample": {
+      "status": "Success",
+      "statusCode": 200,
+      "refId": null,
+      "message": "Publish Eroll Data fetched Successfully!",
+      "payload": [
+        {
+          "id": "S28-2026-DR",
+          "stateCd": "S28",
+          "year": 2026,
+          "revisionNo": 1,
+          "byElecAcList": null,
+          "rollType": "DraftRoll",
+          "rollTypeRefId": "SIR-DraftRoll",
+          "pdfGenType": "EROLLGEN",
+          "displayName": "SIR DraftRoll - 2026",
+          "publish": "Y",
+          "publishDate": "2026-07-14",
+          "createdBy": "Backend",
+          "isActive": "Y",
+          "nonPublishedAcs": null
+        }
+      ],
+      "file": null
+    }
+  },
+  {
+    "url": "https://gateway-voters.eci.gov.in/api/v1/captcha-service/generateVoiceCaptcha/295F794361444421FECE7AABE0EA2189",
+    "method": "GET",
+    "status": 200,
+    "request_headers": {
+      "sec-ch-ua-platform": "\"Windows\"",
+      "referer": "",
+      "accept-language": "en-IN",
+      "sec-ch-ua": "\"Not=A?Brand\";v=\"99\", \"HeadlessChrome\";v=\"151\", \"Chromium\";v=\"151\"",
+      "sec-ch-ua-mobile": "?0",
+      "accept-encoding": "identity;q=1, *;q=0",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.7922.34 Safari/537.36",
+      "range": "bytes=0-"
+    },
+    "post_data": null,
+    "response_sample": null
+  },
+  {
+    "url": "https://gateway-voters.eci.gov.in/api/v1/printing-publish/get-publish-eroll-type?stateCd=y_ZstqtC-BhS-HT_8YEwR_s7YorU&year=y5duvL8bHwH1HhQRQqbOVQDBaCk6QQ&misKey=y-AMwcV1cRGjsKJHzpLp24c37XaOo9FyRkJbr4wnVszfiA",
+    "method": "GET",
+    "status": 200,
+    "request_headers": {
+      "accept_yek": "jRgi7iS9S3Cvm3i3OXAAP-a5X-xmo3czqrfrnE6O7jtQzWFWRCqjtTjRaqUytDQavSprY7T-So_YgvP96c5BwvdfBZqkMoQytl6WvgLINUxdl25aJ_7JCEPtZIG1uSCVxwSH71KNZuTX5Ia_7V6L1KxYIWoa-4aPJdsZxjPgBEuB6tOi3nSTCOqB5iMd7xJRFndHo0yL-fG7qIdZFrnProQUf10L5a6eAyxOzNwYZwLOuPzTTMipPPikF_2j2C_XuGEt84y_0ltOByespfRIglVO7ip6DC-VVFWxt3Toq2ybFO6tcePgGq8qWKcLJLxEwGARvTsZp2ML-M7naEJS7A",
+      "sec-ch-ua-platform": "\"Windows\"",
+      "platform-type": "ECIWEB",
+      "accept_rotcev": "bOD6atnuLQ9hYouU",
+      "referer": "",
+      "accept-language": "en-IN",
+      "sec-ch-ua": "\"Not=A?Brand\";v=\"99\", \"HeadlessChrome\";v=\"151\", \"Chromium\";v=\"151\"",
+      "sec-ch-ua-mobile": "?0",
+      "applicationname": "VSP",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.7922.34 Safari/537.36",
+      "channelidobo": "VSP"
+    },
+    "post_data": null,
+    "response_sample": {
+      "status": "Success",
+      "statusCode": 200,
+      "refId": null,
+      "message": "Publish Eroll Data fetched Successfully!",
+      "payload": [
+        {
+          "id": "S28-2026-DR",
+          "stateCd": "S28",
+          "year": 2026,
+          "revisionNo": 1,
+          "byElecAcList": null,
+          "rollType": "DraftRoll",
+          "rollTypeRefId": "SIR-DraftRoll",
+          "pdfGenType": "EROLLGEN",
+          "displayName": "SIR DraftRoll - 2026",
+          "publish": "Y",
+          "publishDate": "2026-07-14",
+          "createdBy": "Backend",
+          "isActive": "Y",
+          "nonPublishedAcs": null
+        }
+      ],
+      "file": null
+    }
+  },
+  {
+    "url": "https://gateway-voters.eci.gov.in/api/v1/printing-publish/get-ac-languages",
+    "method": "POST",
+    "status": 200,
+    "request_headers": {
+      "sec-ch-ua-platform": "\"Windows\"",
+      "platform-type": "ECIWEB",
+      "referer": "",
+      "accept-language": "en-IN",
+      "atkn_bnd": "null",
+      "rtkn_bnd": "null",
+      "sec-ch-ua": "\"Not=A?Brand\";v=\"99\", \"HeadlessChrome\";v=\"151\", \"Chromium\";v=\"151\"",
+      "sec-ch-ua-mobile": "?0",
+      "applicationname": "VSP",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.7922.34 Safari/537.36",
+      "currentrole": "citizen",
+      "channelidobo": "VSP",
+      "content-type": "application/json"
+    },
+    "post_data": null,
+    "response_sample": {
+      "status": "Success",
+      "statusCode": 200,
+      "refId": null,
+      "message": null,
+      "payload": {
+        "HIN": "HINDI"
+      },
+      "file": null
+    }
+  },
+  {
+    "url": "https://gateway-voters.eci.gov.in/api/v1/captcha-service/getCaptcha/EROLL",
+    "method": "GET",
+    "status": 200,
+    "request_headers": {
+      "sec-ch-ua-platform": "\"Windows\"",
+      "platform-type": "ECIWEB",
+      "referer": "",
+      "accept-language": "en-IN",
+      "sec-ch-ua": "\"Not=A?Brand\";v=\"99\", \"HeadlessChrome\";v=\"151\", \"Chromium\";v=\"151\"",
+      "sec-ch-ua-mobile": "?0",
+      "applicationname": "VSP",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.7922.34 Safari/537.36",
+      "appname": "VSP",
+      "channelidobo": "VSP"
+    },
+    "post_data": null,
+    "response_sample": null
+  }
+]

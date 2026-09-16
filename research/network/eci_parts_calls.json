@@ -1,0 +1,113 @@
+[
+  {
+    "url": "https://gateway-voters.eci.gov.in/api/v1/authn-voter/validate-token",
+    "method": "GET",
+    "status": 401,
+    "post_data": null,
+    "response_sample": {
+      "httpStatus": 401,
+      "error": "Unauthorized",
+      "errorCode": null,
+      "message": "Please provide Auth token",
+      "cause": null,
+      "path": "/api/v1/authn-voter/validate-token",
+      "timestamp": "2026-09-14T04:04:42.833+00:00"
+    }
+  },
+  {
+    "url": "https://gateway-voters.eci.gov.in/api/v1/captcha-service/getCaptcha/EROLL",
+    "method": "GET",
+    "status": 200,
+    "post_data": null
+  },
+  {
+    "url": "https://gateway-voters.eci.gov.in/api/v1/printing-publish/get-publish-eroll-type?stateCd=O04FZjEPYY4VzOGBoLBNhRe8MEhe&year=Ky0FaI4_H3wkXYVZvxpV11ojXQo&misKey=O1hlEV_wlB8OeC7LltfvBKtnP5AYgAVujkuqItC5PPUiGw",
+    "method": "GET",
+    "status": 200,
+    "post_data": null,
+    "response_sample": {
+      "status": "Success",
+      "statusCode": 200,
+      "refId": null,
+      "message": "Publish Eroll Data fetched Successfully!",
+      "payload": [
+        {
+          "id": "S28-2026-DR",
+          "stateCd": "S28",
+          "year": 2026,
+          "revisionNo": 1,
+          "byElecAcList": null,
+          "rollType": "DraftRoll",
+          "rollTypeRefId": "SIR-DraftRoll",
+          "pdfGenType": "EROLLGEN",
+          "displayName": "SIR DraftRoll - 2026",
+          "publish": "Y",
+          "publishDate": "2026-07-14",
+          "createdBy": "Backend",
+          "isActive": "Y",
+          "nonPublishedAcs": null
+        }
+      ],
+      "file": null
+    }
+  },
+  {
+    "url": "https://gateway-voters.eci.gov.in/api/v1/captcha-service/generateVoiceCaptcha/A700E1CC5BE89E659C51D2BC4E531FD8",
+    "method": "GET",
+    "status": 200,
+    "post_data": null
+  },
+  {
+    "url": "https://gateway-voters.eci.gov.in/api/v1/printing-publish/get-publish-eroll-type?stateCd=YyrKjJwm4_j1yT8Xk6GyAfd5s2Fy&year=Y0vIhogLm3M4sth3t3OFDg4CgVtNDg&misKey=Yzyq-_JlEics3TP4-pyQOpJIjUjVPVxUo7jsa-UI324bQw",
+    "method": "GET",
+    "status": 200,
+    "post_data": null,
+    "response_sample": {
+      "status": "Success",
+      "statusCode": 200,
+      "refId": null,
+      "message": "Publish Eroll Data fetched Successfully!",
+      "payload": [
+        {
+          "id": "S28-2026-DR",
+          "stateCd": "S28",
+          "year": 2026,
+          "revisionNo": 1,
+          "byElecAcList": null,
+          "rollType": "DraftRoll",
+          "rollTypeRefId": "SIR-DraftRoll",
+          "pdfGenType": "EROLLGEN",
+          "displayName": "SIR DraftRoll - 2026",
+          "publish": "Y",
+          "publishDate": "2026-07-14",
+          "createdBy": "Backend",
+          "isActive": "Y",
+          "nonPublishedAcs": null
+        }
+      ],
+      "file": null
+    }
+  },
+  {
+    "url": "https://gateway-voters.eci.gov.in/api/v1/printing-publish/get-ac-languages",
+    "method": "POST",
+    "status": 200,
+    "post_data": null,
+    "response_sample": {
+      "status": "Success",
+      "statusCode": 200,
+      "refId": null,
+      "message": null,
+      "payload": {
+        "HIN": "HINDI"
+      },
+      "file": null
+    }
+  },
+  {
+    "url": "https://gateway-voters.eci.gov.in/api/v1/printing-publish/get-publish-part-list",
+    "method": "POST",
+    "status": 200,
+    "post_data": null
+  }
+]

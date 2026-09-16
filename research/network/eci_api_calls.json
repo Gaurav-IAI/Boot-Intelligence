@@ -1,0 +1,75 @@
+[
+  {
+    "url": "https://gateway-voters.eci.gov.in/api/v1/authn-voter/validate-token",
+    "method": "GET",
+    "status": 401,
+    "post_data": null,
+    "response_sample": {
+      "httpStatus": 401,
+      "error": "Unauthorized",
+      "errorCode": null,
+      "message": "Please provide Auth token",
+      "cause": null,
+      "path": "/api/v1/authn-voter/validate-token",
+      "timestamp": "2026-09-14T04:03:50.536+00:00"
+    }
+  },
+  {
+    "url": "https://gateway-voters.eci.gov.in/api/v1/authn-voter/validate-token",
+    "method": "GET",
+    "status": 401,
+    "post_data": null,
+    "response_sample": {
+      "httpStatus": 401,
+      "error": "Unauthorized",
+      "errorCode": null,
+      "message": "Please provide Auth token",
+      "cause": null,
+      "path": "/api/v1/authn-voter/validate-token",
+      "timestamp": "2026-09-14T04:03:57.022+00:00"
+    }
+  },
+  {
+    "url": "https://gateway-voters.eci.gov.in/api/v1/captcha-service/getCaptcha/EROLL",
+    "method": "GET",
+    "status": 200,
+    "post_data": null
+  },
+  {
+    "url": "https://gateway-voters.eci.gov.in/api/v1/printing-publish/get-publish-eroll-type?stateCd=iBZDW9SXbN9i2eJSAA6MQbhbtzDJ&year=mHVDVVaYbiJ8drGhI5xurth90Yo&misKey=iAAjLLp7t2nruFakarcJgf22vC1HcKOn6doNYoHCDNkLQg",
+    "method": "GET",
+    "status": 200,
+    "post_data": null,
+    "response_sample": {
+      "status": "Success",
+      "statusCode": 200,
+      "refId": null,
+      "message": "Publish Eroll Data fetched Successfully!",
+      "payload": [
+        {
+          "id": "S28-2026-DR",
+          "stateCd": "S28",
+          "year": 2026,
+          "revisionNo": 1,
+          "byElecAcList": null,
+          "rollType": "DraftRoll",
+          "rollTypeRefId": "SIR-DraftRoll",
+          "pdfGenType": "EROLLGEN",
+          "displayName": "SIR DraftRoll - 2026",
+          "publish": "Y",
+          "publishDate": "2026-07-14",
+          "createdBy": "Backend",
+          "isActive": "Y",
+          "nonPublishedAcs": null
+        }
+      ],
+      "file": null
+    }
+  },
+  {
+    "url": "https://gateway-voters.eci.gov.in/api/v1/captcha-service/generateVoiceCaptcha/6460B69B3A577E93A8B937563EB3AE5B",
+    "method": "GET",
+    "status": 200,
+    "post_data": null
+  }
+]

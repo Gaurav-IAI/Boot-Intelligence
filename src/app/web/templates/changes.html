@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Historical booth mapping · {{ ac_label(ac) }}{% endblock %}
+{% block body %}
+<h1>HISTORICAL BOOTH MAPPING</h1>
+<div class="subhead"><a href="/ac/{{ ac.id }}"><strong>AC {{ ac.ac_number }} — {{ ac.ac_name }}</strong></a>{% if ac.delimitation != 'current' %} ({{ ac.delimitation }}){% endif %} · {{ district.district_name }}</div>
+<p class="lede">Tracing historical polling-station areas to current booth records using official village and building evidence.</p>
+
+{% if rows %}
+<section>
+  <div class="cards c3">
+    {{ ui.kpi(counts['Verified'], 'Verified', 'official area and building evidence agree', False, 'good') }}
+    {{ ui.kpi(counts['Review Required'], 'Review required', 'evidence incomplete, ambiguous or OCR-only', False, 'warn') }}
+    {{ ui.kpi(counts['Not Mapped'], 'Not mapped', 'no defensible current counterpart') }}
+  </div>
+  <p class="muted small mt">{{ rows|length }} official village-to-current-station relationships across
+    {{ rows|map(attribute='hist_part')|unique|list|length }} historical parts — each relationship counted once.
+    These are evidence relationships, not one-to-one booth matches. Multiple historical villages may map to the
+    same current polling station.</p>
+
+  <div class="two mt">
+    <div class="card"><h3>Mapping method</h3>
+      <p>Historical booth numbers can change across electoral revisions. A historical-to-current link is marked
+        <strong>Verified only when supported by matching official area/building evidence</strong>. Ambiguous
+        relationships remain <strong>Review Required</strong>.</p>
+      <p class="muted small">Source: CEO Uttarakhand official historical/current mapping and polling-station records.</p>
+    </div>
+    <div class="card"><h3>Why is mapping required?</h3>
+      <p>Polling-station numbers can change between electoral revisions.</p>
+      <p>The system therefore does not assume that Part 6 in one year is the same physical booth as Part 6 in another year.</p>
+      <p><strong>Only evidence-backed relationships are marked Verified.</strong></p>
+    </div>
+  </div>
+
+  <details class="prov mt">
+    <summary>View methodology</summary>
+    <div class="inner">
+      <p>Each row is one record of CEO Uttarakhand's official village-level mapping: a village of a 2003 electoral-roll
+        part and the 2025 roll part (with its building name) that the village moved to. The 2026 polling-station list
+        renumbered stations, so the 2025 part number alone proves nothing about the current part.</p>
+      <p>A row is <strong>Verified</strong> only when both official signals point to the same current polling station:
+        the village is listed in that station's areas in the Polling Station List 2026, and the official 2025 building
+        name matches that station's building.</p>
+      <p>A row stays <strong>Review Required</strong> when a signal is missing, conflicting or points to more than one
+        station. Where the scanned Polling Station List 2024 (read by OCR) indicates a likely current part, it is shown
+        as “Possible: Part N” only — OCR text similarity is never accepted as verification.</p>
+      <p>A row is <strong>Not mapped</strong> when the official mapping lists no 2025 part for the village, or no
+        mapping exists for a historical part.</p>
+      <p>Electorate comparison unavailable — current voter roll is not available.</p>
+    </div>
+  </details>
+</section>
+
+<section>
+  <p class="muted small">Mapping is evidence-based at the village/area level; a historical part may therefore have
+    multiple relationships to current polling stations.</p>
+  <div class="tablecard">
+  <table>
+    <thead><tr>
+      <th>Historical part (2003)</th><th>Historical area / village</th>
+      <th>Current part (2026)</th><th>Current polling-station area / building</th><th>Status</th></tr></thead>
+    <tbody>
+    {% for m in rows %}
+    <tr>
+      <td>{% if m.hist_station_id %}<a href="/station/{{ m.hist_station_id }}"><strong>Part {{ m.hist_part }}</strong></a>{% else %}<strong>Part {{ m.hist_part }}</strong>{% endif %}
+        <span class="sub">AC {{ m.hist_ac_number }} {{ m.hist_ac_name or '' }}</span></td>
+      <td>{{ (m.hist_area or '—')|truncate(60) }}</td>
+      <td>{% if m.current_part %}{% if m.current_station_id %}<a href="/station/{{ m.current_station_id }}"><strong>{{ m.current_part }}</strong></a>{% else %}<strong>{{ m.current_part }}</strong>{% endif %}{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td class="small">{{ (m.current_area or '—')|truncate(70) }}</td>
+      <td>{% if m.status == 'Verified' %}{{ ui.chip('good', 'Verified', m.note) }}{% elif m.status == 'Review Required' %}{{ ui.chip('warn', 'Review required', m.note) }}{% else %}{{ ui.chip('plain', 'Not mapped', m.note) }}{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="muted small">“Possible” current parts are not confirmed. Hover a status for its reason.</p>
+</section>
+{% else %}
+<section><div class="panel"><p>No official booth mapping has been ingested for this constituency.</p></div></section>
+{% endif %}
+{% endblock %}

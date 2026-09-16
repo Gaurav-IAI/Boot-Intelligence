@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Part {{ d.station.part_number }} · {{ ac_label(d.ac) }}{% endblock %}
+{% block body %}
+{% set st = d.station %}{% set cur = st.edition == 'SIR-2026' %}{% set g = r.agg %}{% set bs = r.stats %}
+{% if cur %}{{ ui.ctx('cur', 'Current polling station — 2026') }}{% else %}{{ ui.ctx('hist', 'Historical electoral roll — ' ~ (d.roll.roll_year if d.roll else '2003')) }}{% endif %}
+<h1>PART {{ st.part_number }}</h1>
+<div class="subhead"><strong>{{ st.polling_station_name or st.part_name or '—' }}</strong>
+  {% if st.polling_station_name_local and st.polling_station_name_local != st.polling_station_name %}· {{ st.polling_station_name_local }}{% endif %}</div>
+<div class="subhead small mt">
+  <a href="/ac/{{ d.ac.id }}">{% if cur %}AC {{ d.ac.ac_number }} — {{ d.ac.ac_name }}{% else %}AC {{ d.ac.ac_number }} — {{ d.ac.ac_name }} ({{ d.ac.delimitation }} historical roll){% endif %}</a>
+  · {{ d.district.district_name }}{% if st.area_description and st.area_description != 'सभी' %} · Areas: {{ st.area_description }}{% endif %}
+</div>
+
+<div class="two mt" style="margin-top:24px">
+<div>
+  <div class="card">
+    <h3>Electorate</h3>
+    {% if g %}
+      <div style="font-size:40px;font-weight:700;line-height:1.1">{{ g.total|n }} <span style="font-size:18px;color:var(--ink2)">electors</span></div>
+      <div class="muted small">Part of {{ av.historical_roll_records|n }} records across {{ av.historical_parts_with_roll }} historical parts of this constituency</div>
+      <div class="cards mt">
+        {{ ui.kpi(g.male|n, 'Male') }}
+        {{ ui.kpi(g.female|n, 'Female') }}
+        {{ ui.kpi(g.other_unknown|n, 'Unknown') }}
+        {{ ui.kpi(g.with_epic|n, 'EPIC', g.epic_pct|pct ~ ' of electors') }}
+      </div>
+      {{ ui.gender(g.male, g.female, g.other_unknown) }}
+    {% else %}
+      <div class="panel mt"><p><strong>Current voter roll: not available from the current public source.</strong>
+        No elector counts are shown for this polling station.</p></div>
+    {% endif %}
+  </div>
+
+  {% if g %}
+  {% set clean = not g.invalid and not bs.serial_outliers %}
+  <div class="card mt">
+    <h3>Data status</h3>
+    {% if clean %}
+      <div class="statushead">{{ ui.chip('good', 'Clean') }}</div>
+    {% else %}
+      <div class="statushead">{{ ui.chip('warn', 'Review required') }}</div>
+    {% endif %}
+    <ul class="statuslist">
+      {% if g.duplicates %}<li class="warn"><i>!</i>{{ g.duplicates|n }} duplicate records</li>{% endif %}
+      {% if g.invalid %}<li class="warn"><i>!</i>{{ g.invalid|n }} validation flags</li>{% endif %}
+      {% if bs.serial_outliers %}<li class="warn"><i>!</i>{{ bs.serial_outliers|length }} serial anomaly (serial {{ bs.serial_outliers|join(', ') }})</li>{% endif %}
+      {% if not clean and g.low_conf %}<li class="warn"><i>!</i>{{ g.low_conf|n }} low-confidence rows</li>{% endif %}
+      <li class="good"><i>✓</i>Extraction complete</li>
+      <li class="{{ 'good' if d.roll.checksum_sha256 else 'warn' }}"><i>{{ '✓' if d.roll.checksum_sha256 else '!' }}</i>Source retained</li>
+      <li class="{{ 'good' if g.provenance_complete == g.total else 'warn' }}"><i>{{ '✓' if g.provenance_complete == g.total else '!' }}</i>Provenance available</li>
+      {% if not g.invalid %}<li class="good"><i>✓</i>No validation failure</li>{% endif %}
+      {% if not g.duplicates %}<li class="good"><i>✓</i>No duplicate detected</li>{% endif %}
+    </ul>
+  </div>
+  {% endif %}
+</div>
+
+<div>
+  <div class="card">
+    <h3>Historical mapping</h3>
+    {% if lineage %}
+    <table class="mt">
+      <thead><tr><th>Historical part {{ ui.ctx('hist', '2003') }}</th><th>Current part {{ ui.ctx('cur', '2026') }}</th><th>Mapping</th></tr></thead>
+      <tbody>
+      {% for m in lineage %}
+      <tr>
+        <td>{% if m.hist_station_id and m.hist_station_id != st.id %}<a href="/station/{{ m.hist_station_id }}"><strong>Part {{ m.hist_part }}</strong></a>{% else %}<strong>Part {{ m.hist_part }}</strong>{% endif %}
+          <span class="sub">{{ m.hist_area or '' }}</span></td>
+        <td>{% if m.current_part %}{% if m.current_station_id and m.current_station_id != st.id %}<a href="/station/{{ m.current_station_id }}"><strong>{{ m.current_part }}</strong></a>{% else %}<strong>{{ m.current_part }}</strong>{% endif %}{% else %}<span class="muted">No verified current part</span>{% endif %}</td>
+        <td>{% if m.status == 'Verified' %}{{ ui.chip('good', 'Verified', m.note) }}{% elif m.status == 'Review Required' %}{{ ui.chip('warn', 'Review required', m.note) }}{% else %}{{ ui.chip('plain', 'Not mapped', m.note) }}{% endif %}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p class="muted small mt">Electorate comparison unavailable — the current voter roll is not available.</p>
+    {% else %}
+    <p class="muted">{% if cur %}No official historical mapping links to this polling station.{% else %}Not mapped — no official village mapping has been ingested for this part.{% endif %}</p>
+    {% endif %}
+  </div>
+
+  {% if cur and av.result_records %}
+  <div class="card mt">
+    <h3>Historical results</h3>
+    <p class="muted" style="margin:0">{{ av.result_years|join(', ') }} Form 20 records exist for this constituency in their original
+      booth numbering. They are not assigned to this polling station because no verified booth mapping exists.</p>
+    <div class="actions"><a class="btn" href="/ac/{{ d.ac.id }}/performance">View {{ av.result_years|join(', ') }} results</a></div>
+  </div>
+  {% endif %}
+</div>
+</div>
+
+<section>
+  <details class="prov" {{ 'open' if prov_open }}>
+    <summary>View data provenance</summary>
+    <div class="inner">
+      <dl class="kv">
+        <dt>Polling-station source</dt><dd>{{ source_label(st.source) }}</dd>
+        {% if st.source_url %}<dt>Station source URL</dt><dd><code>{{ st.source_url }}</code></dd>{% endif %}
+        {% if d.roll %}
+        <dt>Roll</dt><dd>{{ d.roll.roll_type }} {{ d.roll.roll_year }}{% if d.roll.qualifying_date %} · qualifying date {{ d.roll.qualifying_date }}{% endif %}</dd>
+        <dt>Source document</dt><dd><code>{{ d.roll.local_file_path|basename }}</code> · {{ d.roll.page_count }} pages</dd>
+        <dt>Source URL</dt><dd><code>{{ d.roll.pdf_url }}</code></dd>
+        <dt>SHA-256</dt><dd><code>{{ d.roll.checksum_sha256 }}</code></dd>
+        <dt>Extraction method</dt><dd>{{ d.roll.extraction_method }}</dd>
+        <dt>Parser version</dt><dd><code>{{ d.roll.parser_version }}</code></dd>
+        <dt>Mean confidence</dt><dd>{{ (g.mean_confidence * 100)|pct(2) if g else '—' }}</dd>
+        <dt>Derived count</dt><dd>{{ d.roll.official_elector_count|n }} ({{ d.roll.official_count_basis }})</dd>
+        {% endif %}
+      </dl>
+      {% if d.roll %}
+      <p class="muted small mt">Record-level audit ({{ total|n }} records, page {{ page }} of {{ pages }}):</p>
+      <div class="scroll-x">
+      <table>
+        <thead><tr><th class="num">Sl</th><th>Name</th><th>Gender</th><th class="num">Age</th><th>EPIC</th>
+          <th class="num">Page</th><th class="num">Conf.</th><th>Raw text</th><th>Extracted</th><th>Flag</th></tr></thead>
+        <tbody>
+        {% for e in electors %}
+        <tr>
+          <td class="num">{{ e.serial_number }}</td><td>{{ e.elector_name or '' }}</td><td>{{ e.gender }}</td>
+          <td class="num">{{ e.age if e.age is not none else '' }}</td><td class="small">{{ e.epic_number or '' }}</td>
+          <td class="num">{{ e.source_page }}</td><td class="num">{{ '%.2f'|format(e.extraction_confidence or 0) }}</td>
+          <td class="small muted">{{ (e.raw_text or '')|truncate(60) }}</td>
+          <td class="small muted">{{ e.extracted_at.strftime('%Y-%m-%d') if e.extracted_at else '' }}</td>
+          <td>{% if not e.is_valid %}{{ ui.chip('warn', 'dup' if e.duplicate_kind else 'check', e.validation_notes or '') }}{% endif %}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      {% if pages > 1 %}
+      <p class="mt">{% if page > 1 %}<a href="?page={{ page - 1 }}">← previous</a>{% endif %}
+        <span class="muted"> page {{ page }} / {{ pages }} </span>
+        {% if page < pages %}<a href="?page={{ page + 1 }}">next →</a>{% endif %}</p>
+      {% endif %}
+      {% endif %}
+    </div>
+  </details>
+</section>
+{% endblock %}

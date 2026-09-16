@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.py[cod]
+.env
+*.egg-info/
+.pytest_cache/
+data/raw/
+data/processed/
+data/*.sqlite3
+research/portal/
+research/network/*.png
+.DS_Store
+node_modules/

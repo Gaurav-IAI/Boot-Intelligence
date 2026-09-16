@@ -1,0 +1,294 @@
+# Source registry for the Uttarakhand election-data POC.
+#
+# `access` values:
+#   public          - reachable by anonymous HTTP, no protection mechanism
+#   captcha         - gated by a CAPTCHA; MANUAL ONLY, never automated
+#   encrypted-params- the portal encrypts request parameters client-side;
+#                     reproducing that would mean defeating a protection, so
+#                     the endpoint is documented but not called
+#   authenticated   - requires a login token; out of scope
+#
+# `automate: false` sources are recorded so the POC's boundaries are explicit,
+# not because they are "to do later".
+
+meta:
+  state: Uttarakhand
+  state_code_discovered_from: eci_states     # never hard-coded
+  last_verified: 2026-09-14
+
+sources:
+
+  # ---------------------------------------------------------------- ECI ----
+  eci_states:
+    name: ECI gateway - state list
+    owner: Election Commission of India
+    type: api
+    url: https://gateway-voters.eci.gov.in/api/v1/common/states
+    method: GET
+    access: public
+    captcha: false
+    automate: true
+    data_scope: all 36 states and UTs
+    fields: [stateCd, stateName, stateNameHindi, stateType, stateId, isActive]
+    extraction_method: direct HTTP + JSON
+    bulk: true
+    rate_limit_observed: none at low volume
+    fallback: CEO Uttarakhand site (state implicit)
+    last_verified: 2026-09-14
+    notes: Uttarakhand resolves to S28 / stateId 27. Stored, never assumed.
+
+  eci_districts:
+    name: ECI gateway - districts for a state
+    owner: Election Commission of India
+    type: api
+    url: https://gateway-voters.eci.gov.in/api/v1/common/districts/{stateCd}
+    method: GET
+    access: public
+    captcha: false
+    automate: true
+    data_scope: 13 districts for S28
+    fields: [districtCd, districtNo, districtValue, districtValueHindi, isActive]
+    extraction_method: direct HTTP + JSON
+    bulk: true
+    last_verified: 2026-09-14
+    notes: The stateCd field inside each row is null; carry it from the request.
+
+  eci_acs:
+    name: ECI gateway - assembly constituencies for a district
+    owner: Election Commission of India
+    type: api
+    url: https://gateway-voters.eci.gov.in/api/v1/common/acs/{districtCd}
+    method: GET
+    access: public
+    captcha: false
+    automate: true
+    data_scope: 70 ACs across Uttarakhand
+    fields: [asmblyNo, asmblyName, asmblyNameL1, category, pcNo, acId]
+    extraction_method: direct HTTP + JSON
+    bulk: true
+    last_verified: 2026-09-14
+
+  eci_publish_eroll_type:
+    name: ECI gateway - published roll catalogue
+    owner: Election Commission of India
+    type: api
+    url: https://gateway-voters.eci.gov.in/api/v1/printing-publish/get-publish-eroll-type
+    method: GET
+    access: encrypted-params
+    captcha: false
+    automate: false
+    extraction_method: observed via Playwright only
+    last_verified: 2026-09-14
+    notes: >
+      Query parameter VALUES are encrypted client-side and rotate per page load.
+      Recorded for documentation. Useful fact obtained: the only published 2026
+      roll for Uttarakhand is "SIR DraftRoll - 2026", published 2026-07-14.
+
+  eci_publish_part_list:
+    name: ECI gateway - part list for an AC
+    owner: Election Commission of India
+    type: api
+    url: https://gateway-voters.eci.gov.in/api/v1/printing-publish/get-publish-part-list
+    method: POST
+    access: encrypted-params
+    captcha: false
+    automate: false
+    last_verified: 2026-09-14
+    notes: >
+      Returns 200 for the portal, 400 for a plaintext POST; the request body is
+      not readable JSON. Superseded for this POC by ceo_uk_sir_parts, which is
+      public and unencrypted.
+
+  eci_eroll_pdf:
+    name: ECI - electoral roll PDF download (SIR Draft 2026)
+    owner: Election Commission of India
+    type: pdf
+    url: https://voters.eci.gov.in/download-eroll?stateCode=S28
+    method: POST (via portal)
+    access: captcha
+    captcha: true
+    automate: false
+    extraction_method: MANUAL download by a human
+    last_verified: 2026-09-14
+    notes: >
+      BLOCKED BY DESIGN. The page loads captcha-service/getCaptcha/EROLL and
+      renders a required "Captcha *" field above "Download Selected PDFs".
+      We do not solve, submit or bypass it. If a current-roll PDF is needed,
+      a human downloads it and points `extract-roll` at the file.
+
+  eci_captcha_service:
+    name: ECI captcha service
+    owner: Election Commission of India
+    type: api
+    url: https://gateway-voters.eci.gov.in/api/v1/captcha-service/getCaptcha/EROLL
+    access: captcha
+    captcha: true
+    automate: false
+    last_verified: 2026-09-14
+    notes: Never called. Listed so the boundary is explicit.
+
+  # -------------------------------------------------- CEO Uttarakhand ----
+  ceo_uk_sir_parts:
+    name: CEO Uttarakhand - SIR 2026 polling stations for an AC
+    owner: CEO Uttarakhand
+    type: api
+    url: https://election.uk.gov.in/asdlist/SearchAdsEpic/Parts?acNo={acNo}
+    method: GET
+    access: public
+    captcha: false
+    automate: true
+    data_scope: all parts of an AC, current (SIR 2026) revision
+    fields: [partNo, partName, displayName]
+    extraction_method: direct HTTP + JSON
+    bulk: true
+    last_verified: 2026-09-14
+    notes: >
+      Preferred polling-station source. The sibling operations on the same page
+      (SearchEpic, DownloadAsdPdf, DownloadBlaMinutes) DO require a CAPTCHA and
+      are not implemented.
+    tls: requires OP_LEGACY_SERVER_CONNECT
+
+  ceo_uk_ps_list_2026:
+    name: CEO Uttarakhand - Polling Station List 2026
+    owner: CEO Uttarakhand
+    type: pdf
+    index_url: https://election.uk.gov.in/PSSIR2026/polling_station_2026.html
+    url: https://election.uk.gov.in/PSSIR2026/{acNumber}.pdf
+    method: GET
+    access: public
+    captcha: false
+    automate: true
+    data_scope: 70 ACs; part number, station building, areas covered
+    extraction_method: PDF text + Kruti Dev transliteration
+    bulk: true
+    last_verified: 2026-09-14
+    notes: >
+      Excel printed to PDF: reading order is scrambled and merged cells make the
+      locality/building split unreliable, so the two are stored joined.
+      The index page also embeds the full district->AC master for all 70 ACs.
+
+  ceo_uk_legacy_roll_2003:
+    name: CEO Uttarakhand - Legacy Electoral Roll 2003
+    owner: CEO Uttarakhand
+    type: api + pdf
+    portal: https://election.uk.gov.in/search2003uk/search.html
+    api_base: https://election.uk.gov.in/search2003uk/api/uklegacydata
+    endpoints:
+      districts: /district-names
+      acs: /ac-names?districtName={name}
+      parts: /part-names?acName={name}
+      villages: /villages?searchText={text}
+      village_details: /village-details?villageName={name}
+      roll_pdf: /pdf?filePath=files/Roll2003/{ac:02d}-{acName}/P{ac:03d}{part:04d}.pdf
+    method: GET
+    access: public
+    captcha: false
+    automate: true
+    data_scope: >
+      Full 2003-delimitation hierarchy and the published roll PDF for every part.
+    fields:
+      - serial number
+      - house number (usually blank in this edition)
+      - elector name
+      - relation type (father / mother / husband / other)
+      - relative name
+      - gender
+      - age
+      - EPIC (optional)
+    extraction_method: PDF text, geometric column parsing, conjunct repair
+    bulk: true
+    last_verified: 2026-09-14
+    tls: requires OP_LEGACY_SERVER_CONNECT
+    notes: >
+      PRIMARY ELECTOR SOURCE for this POC: a genuinely published official roll,
+      served by plain GET with no protection mechanism.
+    deliberately_not_implemented:
+      - /search      # per-elector search; enumerating booths through it would be
+      - /epic-no     # the brute-force voter search the brief forbids
+      - /export
+
+  ceo_uk_part_mapping:
+    name: CEO Uttarakhand - official 2003 to 2025 part mapping
+    owner: CEO Uttarakhand
+    type: api
+    url: https://election.uk.gov.in/search2003uk/api/uklegacydata/village-details
+    method: GET
+    access: public
+    captcha: false
+    automate: true
+    fields: [ac2003, part2003, gram, ac2025, acName2025, part2025, part2025Names]
+    extraction_method: direct HTTP + JSON
+    last_verified: 2026-09-14
+    notes: >
+      Village-level and one-to-many: a single 2003 part can split across several
+      2025 parts. Stored with mapping_method=official_ceo_uk_village_mapping.
+
+  ceo_uk_form20_2012:
+    name: CEO Uttarakhand - Form 20, Vidhan Sabha 2012
+    owner: CEO Uttarakhand
+    type: pdf
+    index_url: https://election.uk.gov.in/Vidhan_sabha2012/form20_2012_PDF/form20_2012.htm
+    url: https://election.uk.gov.in/Vidhan_sabha2012/form20_2012_PDF/{nn}-{Name}.pdf
+    method: GET
+    access: public
+    captcha: false
+    automate: true
+    data_scope: booth-level results for all 70 ACs
+    extraction_method: PDF text (landscape), geometric rows, Kruti Dev
+    last_verified: 2026-09-14
+    notes: >
+      The only Vidhan Sabha Form 20 set with a usable text layer. Candidate
+      names are rotated column headers that cannot be matched to their vote
+      columns, so only the labelled per-booth totals are stored.
+
+  ceo_uk_form20_2017:
+    name: CEO Uttarakhand - Form 20, Vidhan Sabha 2017
+    owner: CEO Uttarakhand
+    type: pdf
+    index_url: https://election.uk.gov.in/CEO-Website/VidhanSabha2017/Form_20/form20_2017.htm
+    access: public
+    captcha: false
+    automate: false
+    extraction_method: would need re-OCR
+    last_verified: 2026-09-14
+    notes: Has an embedded OCR text layer, but it is corrupted and unusable.
+
+  ceo_uk_form20_2022:
+    name: CEO Uttarakhand - Form 20, Vidhan Sabha 2022
+    owner: CEO Uttarakhand
+    type: pdf
+    index_url: https://election.uk.gov.in/CEO-Website/VidhanSabha2022/Form20/form20_2022.htm
+    access: public
+    captcha: false
+    automate: partial
+    extraction_method: OCR (Devanagari) required - scanned images, 0 text chars
+    last_verified: 2026-09-14
+    notes: >
+      Downloadable without restriction, but needs OCR. Tesseract with `hin` is
+      an optional dependency; when absent the pipeline records the roll as
+      blocked rather than producing empty rows.
+
+  ceo_uk_roll_portal_2018_2023:
+    name: CEO Uttarakhand - electoral roll portal (2018-2023 editions)
+    owner: CEO Uttarakhand
+    type: html
+    url: https://election.uk.gov.in/
+    access: captcha
+    captcha: true
+    automate: false
+    data_scope: 24 roll editions, Draft/Final 2018 to Final 01-07-2023
+    last_verified: 2026-09-14
+    notes: ASP.NET WebForms; __VIEWSTATE carries a Captcha1 control. Manual only.
+
+  ceo_uk_directory_listing:
+    name: CEO Uttarakhand - directory listings
+    owner: CEO Uttarakhand
+    type: html
+    url: https://election.uk.gov.in/Pdf_Roll/
+    access: forbidden
+    captcha: false
+    automate: false
+    last_verified: 2026-09-14
+    notes: >
+      Returns 403. Not circumvented. Document indexes are taken from the
+      official HTML index pages instead.
