@@ -6,8 +6,8 @@
 {% set t = totals %}
 <h1>DATA QUALITY</h1>
 <p class="lede">The system does not just extract data; it also tells us where the data needs verification.</p>
-<p class="muted small">Source: CEO Uttarakhand historical electoral-roll documents (2003). The extraction, validation and
-  coverage metrics on this page are produced by this system; they are not published by CEO Uttarakhand.</p>
+<p class="muted small">{% if booth_sources %}Source: CEO {{ current_state.state_name }} historical electoral-roll documents (2003).{% else %}No booth-level source is ingested for {{ current_state.state_name }} yet; only the ECI constituency list is loaded.{% endif %} The extraction, validation and
+  coverage metrics on this page are produced by this system; they are not published by the election office.</p>
 
 <section>
   <div class="cards c5">

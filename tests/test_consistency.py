@@ -161,7 +161,7 @@ def test_null_or_unknown_mapping_status_is_review(db, world, monkeypatch):
     for v in views:
         if v.status == "verified":
             v.status = None                       # a verified row losing its status is not verified
-    monkeypatch.setattr(bi, "evaluate_mappings", lambda _db: views)
+    monkeypatch.setattr(bi, "evaluate_mappings", lambda _db, state_id=None: views)
     counts = bi.mapping_table(db, world["cur"].id)[3]
     assert counts["Verified"] == 0 and counts["Review Required"] == 3
 

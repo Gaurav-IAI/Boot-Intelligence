@@ -1,4 +1,4 @@
-"""Command line interface for the Uttarakhand election data POC."""
+"""Command line interface for the election data POC (Uttarakhand, Uttar Pradesh, Telangana)."""
 from __future__ import annotations
 
 import json
@@ -21,6 +21,7 @@ from ..extraction.parsers.roll_2003 import parse_roll_pdf
 from ..extraction.pdf.downloader import inspect_pdf
 from ..http_client import HttpClient
 from ..services import pipeline as pl
+from ..states import BOOTH_STATE, DEFAULT_STATE, STATE_NAMES
 
 app = typer.Typer(add_completion=False, help=__doc__, no_args_is_help=True)
 console = Console()
@@ -38,16 +39,34 @@ def _config(*, district: str = DEFAULT_DISTRICT, ac: int = DEFAULT_AC,
             legacy_ac: str = DEFAULT_LEGACY_AC_HI, parts: str | None = DEFAULT_LEGACY_PARTS,
             limit: int = 5, resume: bool = True, all_districts: bool = True,
             skip_mapping: bool = False, skip_form20: bool = False,
-            form20_years: str = "2012", acs: str = "all") -> "pl.PipelineConfig":
+            form20_years: str = "2012", acs: str = "all",
+            states: str = "all") -> "pl.PipelineConfig":
     part_list = [int(p) for p in parts.split(",") if p.strip()] if parts else None
     years = tuple(int(y) for y in form20_years.split(",") if y.strip())
     numbers = None if acs.strip().lower() == "all" else tuple(int(a) for a in acs.split(",") if a.strip())
     return pl.PipelineConfig(
+        states=_state_list(states),
         district=district, ac_number=ac, legacy_district_hi=legacy_district,
         legacy_ac_hi=legacy_ac, legacy_parts=part_list or None, legacy_limit=limit,
         all_districts=all_districts, include_mapping=not skip_mapping,
         include_form20=not skip_form20, resume=resume, form20_years=years or (2012,),
         station_acs=numbers, form20_acs=numbers)
+
+
+def _state_list(states: str) -> tuple[str, ...]:
+    if states.strip().lower() == "all":
+        return STATE_NAMES
+    by_key = {n.casefold(): n for n in STATE_NAMES}
+    chosen = []
+    for raw in states.split(","):
+        name = by_key.get(raw.strip().casefold())
+        if name is None:
+            raise typer.BadParameter(f"unknown state {raw.strip()!r}; choose from {', '.join(STATE_NAMES)}")
+        chosen.append(name)
+    return tuple(chosen)
+
+
+STATES_HELP = f"states to discover from ECI: 'all' or a comma-separated list of {', '.join(STATE_NAMES)}"
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -89,7 +108,7 @@ def cmd_init_db(drop: bool = typer.Option(False, help="Drop and recreate tables"
 
 @app.command("discover-state")
 def cmd_discover_state(
-    state: str = typer.Option("Uttarakhand", "--state"),
+    state: str = typer.Option(DEFAULT_STATE, "--state"),
     concurrency: int = typer.Option(3, "--concurrency"),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ):
@@ -104,7 +123,7 @@ def cmd_discover_state(
 
 @app.command("discover-districts")
 def cmd_discover_districts(
-    state: str = typer.Option("Uttarakhand", "--state"),
+    state: str = typer.Option(DEFAULT_STATE, "--state"),
     concurrency: int = typer.Option(3, "--concurrency"),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ):
@@ -124,7 +143,7 @@ def cmd_discover_districts(
 
 @app.command("discover-acs")
 def cmd_discover_acs(
-    state: str = typer.Option("Uttarakhand", "--state"),
+    state: str = typer.Option(DEFAULT_STATE, "--state"),
     district: str = typer.Option(DEFAULT_DISTRICT, "--district"),
     concurrency: int = typer.Option(3, "--concurrency"),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
@@ -329,6 +348,7 @@ def cmd_pipeline(
                                      help="comma-separated, e.g. 2012,2017,2022 (2017/2022 are recorded as blocked)"),
     acs: str = typer.Option("all", "--acs",
                             help="constituencies to load polling stations and Form 20 for: 'all' or e.g. 19,20"),
+    states: str = typer.Option("all", "--states", help=STATES_HELP),
     verbose: bool = typer.Option(True, "--verbose/--quiet", "-v"),
 ):
     """Run the whole flow in one command: discovery, rolls + validation, mapping,
@@ -337,14 +357,16 @@ def cmd_pipeline(
     cfg = _config(district=district, ac=ac, legacy_district=legacy_district,
                   legacy_ac=legacy_ac, parts=parts, limit=limit, resume=resume,
                   all_districts=all_districts, skip_mapping=skip_mapping,
-                  skip_form20=skip_form20, form20_years=form20_years, acs=acs)
+                  skip_form20=skip_form20, form20_years=form20_years, acs=acs, states=states)
 
     if dry_run:
         console.print("[bold]DRY RUN[/] — the plan, no requests, no writes:")
         for line in [
-            f"1. ECI /common/states           -> resolve '{pl.STATE_NAME}' to its code",
-            f"2. ECI /common/districts/<code> -> all districts",
-            f"3. ECI /common/acs/<districtCd> -> ACs for {'every district' if all_districts else district}; target AC {ac}",
+            f"1. ECI /common/states           -> resolve {', '.join(cfg.states)} to their codes",
+            f"2. ECI /common/districts/<code> -> all districts of each state",
+            f"3. ECI /common/acs/<districtCd> -> ACs for {'every district' if all_districts else district}; "
+            f"target AC {ac} ({BOOTH_STATE})",
+            f"   steps 4-9 use CEO {BOOTH_STATE} sources and run for {BOOTH_STATE} only",
             f"4. CEO UK SearchAdsEpic/Parts   -> SIR 2026 polling stations for ACs: {acs}",
             f"5. CEO UK PSSIR2026/<ac>.pdf      -> station names + areas (quality-gated; scans blocked)",
             f"6. CEO UK Roll 2003 PDFs        -> {legacy_ac} parts "
@@ -395,6 +417,111 @@ def cmd_backfill_form20(
         console.print(f"[yellow]warning:[/] {w}")
 
 
+@app.command("results")
+def cmd_results(
+    state: str = typer.Option(..., "--state", help="Uttar Pradesh or Telangana"),
+    years: str = typer.Option("all", "--years", help="'all' (the state's supported years) or e.g. 2022,2017"),
+    district: str = typer.Option("all", "--district",
+                                 help="UP only: 'all' or comma-separated district names, e.g. Agra"),
+    acs: str = typer.Option("all", "--acs", help="'all' or comma-separated AC numbers"),
+    refresh: bool = typer.Option(False, "--refresh",
+                                 help="re-process constituency-years already stored or blocked"),
+    resume: bool = typer.Option(True, "--resume/--no-resume", help="reuse downloaded files"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+):
+    """Load Form 20 booth results for Uttar Pradesh or Telangana (Uttarakhand's come from `pipeline`).
+
+    Not run by `serve`: these states have ~1,400 result files, so they load only on
+    request. Resumable — already processed constituency-years are skipped.
+    """
+    from ..services.state_results import load_state_results
+
+    _setup_logging(verbose)
+    (name,) = _state_list(state)
+    if name == BOOTH_STATE:
+        console.print(f"[yellow]{BOOTH_STATE} results are loaded by `python -m app pipeline`.[/]")
+        raise typer.Exit(1)
+    year_t = None if years.strip().lower() == "all" else tuple(int(y) for y in years.split(",") if y.strip())
+    ac_t = None if acs.strip().lower() == "all" else tuple(int(a) for a in acs.split(",") if a.strip())
+    dists = None if district.strip().lower() == "all" else [d.strip() for d in district.split(",") if d.strip()]
+    init_db()
+    with get_session() as db, _http(3) as http:
+        try:
+            run = load_state_results(db, http, name, years=year_t, districts=dists, acs=ac_t,
+                                     resume=resume, refresh=refresh)
+        except LookupError as exc:
+            console.print(f"[red]{exc}[/]")
+            raise typer.Exit(1)
+    for w in run.warnings[:40]:
+        console.print(f"[yellow]warning:[/] {w}")
+    if run.warnings:
+        review = settings.processed_dir / "review"
+        review.mkdir(parents=True, exist_ok=True)
+        log_path = review / f"results_{name.replace(' ', '_').lower()}_warnings.txt"
+        log_path.write_text("\n".join(run.warnings) + "\n", encoding="utf-8")
+        more = f"{len(run.warnings) - 40} more; " if len(run.warnings) > 40 else ""
+        console.print(f"[yellow]… {more}all {len(run.warnings)} warnings in {log_path}[/]")
+    console.print(f"\n[bold]{run.summary()}[/]")
+    console.print(f"HTTP: {http.stats.ok}/{http.stats.attempted} requests ok, {http.stats.retries} retries")
+    if run.tally["failed"]:
+        raise typer.Exit(1)
+
+
+@app.command("stations")
+def cmd_stations(
+    district: str = typer.Option("all", "--district",
+                                 help="'all' checked districts, or comma-separated names, e.g. Ghaziabad"),
+    acs: str = typer.Option("all", "--acs", help="'all' or comma-separated AC numbers"),
+    refresh: bool = typer.Option(False, "--refresh", help="re-process lists already stored or blocked"),
+    resume: bool = typer.Option(True, "--resume/--no-resume", help="reuse downloaded PDFs"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+):
+    """Load current (SIR 2026) polling stations for Uttar Pradesh from district polling-station lists.
+
+    Only districts whose list page has been checked are available (see
+    sources/ceo_uttar_pradesh/ps_lists.py). Uttarakhand's come from `pipeline`.
+    """
+    from ..services.state_stations import load_up_polling_stations
+
+    _setup_logging(verbose)
+    ac_t = None if acs.strip().lower() == "all" else tuple(int(a) for a in acs.split(",") if a.strip())
+    dists = None if district.strip().lower() == "all" else [d.strip() for d in district.split(",") if d.strip()]
+    init_db()
+    with get_session() as db, _http(3) as http:
+        try:
+            run = load_up_polling_stations(db, http, districts=dists, acs=ac_t, resume=resume, refresh=refresh)
+        except LookupError as exc:
+            console.print(f"[red]{exc}[/]")
+            raise typer.Exit(1)
+    for w in run.warnings[:40]:
+        console.print(f"[yellow]warning:[/] {w}")
+    console.print(f"\n[bold]{run.summary()}[/]")
+    if run.tally["failed"]:
+        raise typer.Exit(1)
+
+
+@app.command("migrate-db")
+def cmd_migrate_db(
+    source: str = typer.Option(settings.database_url_fallback, "--from",
+                               help="source database URL (default: the local SQLite file)"),
+    target: str = typer.Option(settings.database_url, "--to", help="target database URL (default: DATABASE_URL)"),
+    replace: bool = typer.Option(False, "--replace", help="empty a non-empty target first"),
+):
+    """Copy all loaded data from one database into another — e.g. this machine's SQLite file into
+    the server's PostgreSQL — so a new server needs no downloads and no re-parsing."""
+    from ..services.db_copy import copy_database
+
+    console.print(f"copying [bold]{source.split('@')[-1]}[/] -> [bold]{target.split('@')[-1]}[/]")
+    try:
+        report = copy_database(source, target, replace=replace)
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1)
+    for name, n in report.rows.items():
+        console.print(f"  {name:<24} {n:>10,}")
+    console.print(f"[bold green]{report.total:,} rows copied[/]")
+
+
 @app.command("serve")
 def cmd_serve(
     host: str = typer.Option("127.0.0.1", "--host"),
@@ -404,6 +531,7 @@ def cmd_serve(
     refresh: bool = typer.Option(False, "--refresh",
                                  help="re-run every pipeline stage, not only missing ones"),
     concurrency: int = typer.Option(3, "--concurrency"),
+    states: str = typer.Option("all", "--states", help=STATES_HELP),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ):
     """Prepare all data (discovery, rolls, validation, mapping, Form 20), then run the dashboard.
@@ -416,7 +544,7 @@ def cmd_serve(
     _setup_logging(verbose)
     if not skip_pipeline:
         console.print("[bold]Preparing data[/] — checking what is missing…\n")
-        _prepare_data(_config(), concurrency=concurrency, refresh=refresh)
+        _prepare_data(_config(states=states), concurrency=concurrency, refresh=refresh)
     console.print(f"\n[bold green]Dashboard:[/] http://{host}:{port}   (Ctrl+C to stop)")
     uvicorn.run("app.web.app:app", host=host, port=port, reload=False)
 

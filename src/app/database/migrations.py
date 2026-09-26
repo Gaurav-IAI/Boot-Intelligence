@@ -17,6 +17,9 @@ log = logging.getLogger(__name__)
 ADDITIVE_COLUMNS: list[tuple[str, str, str]] = [
     ("election_results", "candidate_votes_json", "TEXT"),
     ("election_results", "vote_sum_matches", "BOOLEAN"),
+    ("part_mapping", "state_id", "INTEGER"),
+    ("election_results", "candidates_json", "TEXT"),
+    ("polling_stations", "elector_count", "INTEGER"),
 ]
 
 

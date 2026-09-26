@@ -15,7 +15,7 @@
   <div><span class="l">Current polling-station data</span>
     {% if av.current_stations %}<b>{{ av.current_stations|n }} polling stations</b>{% else %}<b class="na">Not yet ingested</b>{% endif %}</div>
   <div><span class="l">Historical election data</span>
-    {% if av.result_records %}<b>{{ av.result_years|join(', ') }} Form 20 — {{ av.result_records|n }} booth records</b>{% else %}<b class="na">Not available in current POC</b>{% endif %}</div>
+    {% if av.result_records %}<b>{{ av.result_years|join(', ') }} (Form 20) — {{ av.result_records|n }} booth records</b>{% else %}<b class="na">Not available in current POC</b>{% endif %}</div>
   <div><span class="l">Current electoral-roll data</span>
     {% if av.current_roll_records %}<b>{{ av.current_roll_records|n }} records</b>{% else %}<b class="na">Not available from the current public source</b>{% endif %}</div>
 {% else %}

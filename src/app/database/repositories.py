@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from .models import (
@@ -163,7 +163,9 @@ def upsert_part_mapping(db: Session, **fields) -> PartMapping:
         PartMapping.from_part_number == fields["from_part_number"],
         PartMapping.to_edition == fields["to_edition"],
         PartMapping.to_part_number == fields.get("to_part_number"),
-        PartMapping.area_name == fields.get("area_name")))
+        PartMapping.area_name == fields.get("area_name"),
+        # a row stored before part_mapping.state_id existed is the same relationship
+        or_(PartMapping.state_id == fields.get("state_id"), PartMapping.state_id.is_(None))))
     if row is None:
         row = PartMapping(**fields)
         db.add(row)

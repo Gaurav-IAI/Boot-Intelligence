@@ -68,3 +68,30 @@ def download_pdf(
     pages, is_text, chars = inspect_pdf(dest)
     log.info("downloaded %s (%d bytes, %d pages, text=%s)", dest.name, len(data), pages, is_text)
     return StoredPdf(dest, url, sha256_bytes(data), len(data), pages, is_text, chars, False)
+
+
+@dataclass
+class StoredFile:
+    path: Path
+    url: str
+    sha256: str
+    size_bytes: int
+    reused: bool
+
+
+def download_file(fetch, dest: Path, url: str, *, magic: bytes | tuple[bytes, ...],
+                  resume: bool = True) -> StoredFile:
+    """Like `download_pdf` for any document type, checked against its leading `magic` bytes
+    (one signature or several, e.g. .xls or .xlsx), so an HTML error page is never stored
+    as the document."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if resume and dest.exists() and dest.stat().st_size > 0 and dest.read_bytes().startswith(magic):
+        data = dest.read_bytes()
+        log.info("reusing cached %s (%d bytes)", dest.name, len(data))
+        return StoredFile(dest, url, sha256_bytes(data), len(data), True)
+    data = fetch()
+    if not data.startswith(magic):
+        raise ValueError(f"{url} did not return the expected document (first bytes: {data[:16]!r})")
+    dest.write_bytes(data)
+    log.info("downloaded %s (%d bytes)", dest.name, len(data))
+    return StoredFile(dest, url, sha256_bytes(data), len(data), False)

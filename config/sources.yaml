@@ -268,6 +268,71 @@ sources:
       an optional dependency; when absent the pipeline records the roll as
       blocked rather than producing empty rows.
 
+  # ------------------------------------------------ CEO Uttar Pradesh ----
+  ceo_up_form20:
+    name: CEO Uttar Pradesh - Form 20 polling-booth-wise result (Vidhan Sabha)
+    owner: CEO Uttar Pradesh
+    type: xls
+    index_url: https://ceouttarpradesh.nic.in/rollpdf/form20.aspx
+    url: discovered per AC from the page's result grid (e.g. rollpdf/Form20_22/AC86.xls)
+    method: GET page, then POST ASP.NET postbacks (year, then district)
+    access: public
+    captcha: false
+    automate: true
+    years_used: [2012, 2017, 2022]
+    years_listed_not_used: [2007, 2009, 2014, 2019]   # 2007 = pre-2008 AC numbers; 2009/2014/2019 = Lok Sabha
+    data_scope: every AC of 75 districts, one workbook per AC-year
+    extraction_method: typed Excel cells (xlrd); two layouts - English S.No./Party/Votes triplets, and the ECI Hindi form
+    last_verified: 2026-09-25
+    notes: >
+      Loaded on request with `python -m app results --state "Uttar Pradesh"`, not by
+      `serve`. Candidate names and parties are printed as column headers, so they are
+      stored. The Hindi layout adds rejected and NOTA columns. Station names are Kruti
+      Dev in some sheets. The site's 2003 roll page (rollpdf/rollpdf.aspx) is
+      captcha-gated and is not used.
+
+  ceo_up_ps_list_2026:
+    name: District Election Officers, Uttar Pradesh - List of Polling Stations (SIR 2026)
+    owner: 75 District Election Officers (indexed by CEO Uttar Pradesh)
+    type: pdf
+    index_url: https://ceouttarpradesh.nic.in/Draft_List_PS_2025.aspx
+    url: per district, checked by hand (sources/ceo_uttar_pradesh/ps_lists.py)
+    access: public
+    captcha: false
+    automate: partial                      # districts added one at a time
+    districts_loaded: [Ghaziabad]          # 2026-09-26: ACs 53-58, 3,395 stations
+    extraction_method: >
+      text PDF, ruled 10-column table (Annexure-1 or -3); cells decoded from Kruti Dev
+      plus one of two mis-mapped Unicode fonts
+    last_verified: 2026-09-26
+    notes: >
+      Each district posts one PDF per AC on its own site, laid out differently. The
+      lists issued for the SIR 2026 roll are used (Ghaziabad: dated 06-11-2025); the
+      later 04-07-2026 draft is a proposal and its Ghaziabad PDFs are scans.
+      ghaziabad.nic.in answers scripts with "Blocked site"; the identical page on the
+      district's S3WaaS host is used. Elector counts are as printed per station; where
+      a list prints its total (58 Dholana) the station counts add up to it exactly.
+      No 2003-to-2026 part mapping is published for UP (unlike CEO Uttarakhand's
+      village-details API), so UP booth mapping stays "not available".
+
+  # --------------------------------------------------- CEO Telangana ----
+  ceo_tg_form20:
+    name: CEO Telangana - Form 20 Final Result Sheet (Vidhan Sabha)
+    owner: CEO Telangana
+    type: pdf
+    index_url: https://ceotelangana.nic.in/Form20.html
+    url: GE_2023/FORM-20/{n}-{Name}.pdf, GE_2018/Form-20/{nnn}-{Name}.pdf (from the index pages)
+    access: public
+    captcha: false
+    automate: false
+    years_in_scope: [2018, 2023]            # 2004/2009/2014 are undivided Andhra Pradesh
+    extraction_method: OCR required - 2023 scans have no text layer; 2018's OCR layer is corrupt
+    last_verified: 2026-09-25
+    notes: >
+      Local OCR (Tesseract eng, RapidOCR) reconciled under 10% of rows against the
+      sheet's own arithmetic, so nothing is loaded; `results --state Telangana`
+      explains this and stops.
+
   ceo_uk_roll_portal_2018_2023:
     name: CEO Uttarakhand - electoral roll portal (2018-2023 editions)
     owner: CEO Uttarakhand

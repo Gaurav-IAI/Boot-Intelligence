@@ -33,6 +33,7 @@ from ..database.models import (
     AssemblyConstituency, District, Election, ElectionResult, Elector,
     ElectoralRoll, PartMapping, PollingStation, SourceFetch, State,
 )
+from ..states import BOOTH_STATE, booth_state_id, mapping_state_id, spec
 from .booth import AGE_BANDS, booth_stats, quality_report
 
 EDITION_CURRENT = "SIR-2026"
@@ -51,11 +52,51 @@ SOURCE_LABELS = {
     "ceo_uk_ps_list_2026": "CEO Uttarakhand — Polling Station List 2026 (PDF)",
     "ceo_uk_legacy_roll_2003": "CEO Uttarakhand — Electoral Roll 2003 (PDF)",
     "ceo_uk_form20": "CEO Uttarakhand — Form 20 Final Result Sheet (PDF)",
+    "ceo_up_form20": "CEO Uttar Pradesh — Form 20 polling-booth-wise result (Excel)",
+    "ceo_tg_form20": "CEO Telangana — Form 20 Final Result Sheet (scanned PDF, OCR)",
+    "ceo_up_ps_list_2026": "District Election Officer, Uttar Pradesh — List of Polling Stations (SIR 2026)",
 }
 
 
 def source_label(code: str | None) -> str:
     return SOURCE_LABELS.get(code or "", code or "Unknown source")
+
+
+# --- state scope ----------------------------------------------------------
+# Every page is scoped to one state. `state_id=None` means the default state (the
+# one with booth-level sources), so single-state callers keep their behaviour.
+# Results and mappings are keyed by AC *number*, and numbers repeat across states,
+# so a number is matched only inside the state that owns the row.
+def scope_state_id(db: Session, state_id: int | None) -> int | None:
+    return state_id if state_id is not None else booth_state_id(db)
+
+
+def _state_name(db: Session, state_id: int | None) -> str | None:
+    return db.scalar(select(State.state_name).where(State.id == state_id)) if state_id else None
+
+
+def _scope_state_name(db: Session, state_id: int | None) -> str:
+    """The scoped state's name; the default state's name before any state is stored."""
+    return _state_name(db, scope_state_id(db, state_id)) or BOOTH_STATE
+
+
+def _ac_state_id(db: Session, ac: AssemblyConstituency) -> int | None:
+    return db.scalar(select(District.state_id).where(District.id == ac.district_id))
+
+
+def _state_ac_ids(db: Session, state_id: int | None):
+    """Subquery: ids of every AC (any delimitation) in a state."""
+    return (select(AssemblyConstituency.id)
+            .join(District, AssemblyConstituency.district_id == District.id)
+            .where(District.state_id == state_id))
+
+
+def _state_mapping_rows(db: Session, state_id: int | None) -> list[PartMapping]:
+    booth = booth_state_id(db)
+    return [m for m in db.scalars(select(PartMapping).order_by(
+                PartMapping.from_ac_number, PartMapping.from_part_number,
+                PartMapping.to_part_number, PartMapping.id))
+            if mapping_state_id(m.state_id, booth) == state_id]
 
 
 def pct(n: float | None, d: float | None) -> float | None:
@@ -589,25 +630,27 @@ def station_label(s: PollingStation) -> str:
     return s.polling_station_name_local or s.polling_station_name or s.part_name or ""
 
 
-def evaluate_mappings(db: Session) -> list[MappingView]:
-    rows = db.scalars(select(PartMapping).order_by(
-        PartMapping.from_ac_number, PartMapping.from_part_number,
-        PartMapping.to_part_number, PartMapping.id)).all()
+def evaluate_mappings(db: Session, state_id: int | None = None) -> list[MappingView]:
+    """The official part mappings of one state (default: the booth state), each checked
+    against that state's SIR-2026 stations."""
+    sid = scope_state_id(db, state_id)
+    rows = _state_mapping_rows(db, sid)
     if not rows:
         return []
+    in_state = PollingStation.ac_id.in_(_state_ac_ids(db, sid))
     # current-delimitation SIR-2026 stations, keyed by AC number
     cur: dict[int, list[PollingStation]] = {}
     for s, acn in db.execute(
             select(PollingStation, AssemblyConstituency.ac_number)
             .join(AssemblyConstituency, PollingStation.ac_id == AssemblyConstituency.id)
             .where(AssemblyConstituency.delimitation == DELIM_CURRENT,
-                   PollingStation.edition == EDITION_CURRENT)):
+                   PollingStation.edition == EDITION_CURRENT, in_state)):
         cur.setdefault(acn, []).append(s)
     old: dict[tuple[int, int], int] = {
         (acn, s.part_number): s.id for s, acn in db.execute(
             select(PollingStation, AssemblyConstituency.ac_number)
             .join(AssemblyConstituency, PollingStation.ac_id == AssemblyConstituency.id)
-            .where(PollingStation.edition == EDITION_2003))}
+            .where(PollingStation.edition == EDITION_2003, in_state))}
 
     texts = {acn: {s.part_number: _station_text(s) for s in lst} for acn, lst in cur.items()}
     names = {acn: {s.part_number: s.polling_station_name_local or "" for s in lst}
@@ -716,11 +759,38 @@ class ResultView:
     source_page: int | None
     parser_version: str | None
     confidence: float | None
-
+    # [{"name", "party"}] in vote-column order, where the source prints names legibly
+    candidates: list[dict] | None = None
 
     @property
     def verified(self) -> bool:
         return self.reliability == "ok"
+
+    @property
+    def named_columns(self) -> list[tuple[dict, int]] | None:
+        """(candidate, votes) pairs — only for a verified row whose names align one-to-one
+        with its vote columns; otherwise names are not attributed."""
+        if not (self.verified and self.candidates and self.columns
+                and len(self.candidates) == len(self.columns)):
+            return None
+        return list(zip(self.candidates, self.columns))
+
+    def _ranked_name(self, rank: int) -> dict | None:
+        pairs = self.named_columns
+        if not pairs or len(pairs) <= rank:
+            return None
+        ranked = sorted(pairs, key=lambda p: p[1], reverse=True)
+        if ranked[rank][1] in {v for i, (_, v) in enumerate(ranked) if i != rank}:
+            return None                   # tied with another column: no single name
+        return ranked[rank][0]
+
+    @property
+    def leader(self) -> dict | None:
+        return self._ranked_name(0)
+
+    @property
+    def runner_up(self) -> dict | None:
+        return self._ranked_name(1)
 
 
 def expected_column_count(counts: list[int]) -> int | None:
@@ -770,7 +840,8 @@ def _result_view(r: ElectionResult, e: Election, expected_columns: int | None) -
         margin=compute_margin(cols, r.total_valid_votes, rel == "ok"),
         reliability=rel, reliability_note=note, source=r.source,
         source_url=r.source_url, source_file=r.source_file, source_page=r.source_page,
-        parser_version=r.parser_version, confidence=r.extraction_confidence)
+        parser_version=r.parser_version, confidence=r.extraction_confidence,
+        candidates=json.loads(r.candidates_json) if r.candidates_json else None)
 
 
 def result_views(pairs) -> list[ResultView]:
@@ -790,18 +861,62 @@ def results_for_ac(db: Session, ac: AssemblyConstituency) -> list[ResultView]:
         return []
     stmt = (select(ElectionResult, Election)
             .join(Election, ElectionResult.election_id == Election.id)
-            .where(or_(ElectionResult.ac_id == ac.id,
+            .where(Election.state == _state_name(db, _ac_state_id(db, ac)),
+                   or_(ElectionResult.ac_id == ac.id,
                        and_(ElectionResult.ac_id.is_(None),
                             ElectionResult.ac_number == ac.ac_number)))
             .order_by(Election.election_year, ElectionResult.part_number))
     return result_views(db.execute(stmt))
 
 
-def all_result_views(db: Session) -> list[ResultView]:
+def all_result_views(db: Session, state_id: int | None = None) -> list[ResultView]:
     return result_views(db.execute(select(ElectionResult, Election)
                                    .join(Election, ElectionResult.election_id == Election.id)
+                                   .where(Election.state == _scope_state_name(db, state_id))
                                    .order_by(Election.election_year, ElectionResult.ac_number,
                                              ElectionResult.part_number)))
+
+
+@dataclass(slots=True)
+class ResultCheck:
+    """The verification outcome of one Form 20 row, without the display fields — for counts
+    over a whole state (hundreds of thousands of rows)."""
+    id: int
+    year: int
+    ac_number: int | None
+    part_number: int | None
+    reliability: str
+    margin: Margin | None
+    named: bool
+
+    @property
+    def verified(self) -> bool:
+        return self.reliability == "ok"
+
+
+def result_checks(db: Session, state_id: int | None = None) -> list[ResultCheck]:
+    """`form20_row_check` and `compute_margin` over a state's rows — the same rule and the same
+    sheet column counts as `result_views`, reading only the columns the rule needs."""
+    rows = db.execute(select(ElectionResult.id, ElectionResult.election_id, Election.election_year,
+                             ElectionResult.ac_number, ElectionResult.part_number,
+                             ElectionResult.candidate_votes_json, ElectionResult.total_valid_votes,
+                             ElectionResult.candidates_json.is_not(None))
+                      .join(Election, ElectionResult.election_id == Election.id)
+                      .where(Election.state == _scope_state_name(db, state_id))
+                      .order_by(Election.election_year, ElectionResult.ac_number,
+                                ElectionResult.part_number)).all()
+    cols = [json.loads(r[5]) if r[5] else None for r in rows]
+    counts: dict[tuple, list[int]] = {}
+    for r, c in zip(rows, cols):
+        if c is not None:
+            counts.setdefault((r[1], r[3]), []).append(len(c))
+    expected = {k: expected_column_count(v) for k, v in counts.items()}
+    out = []
+    for r, c in zip(rows, cols):
+        rel, _ = form20_row_check(c, r[6], expected.get((r[1], r[3])))
+        out.append(ResultCheck(id=r[0], year=r[2], ac_number=r[3], part_number=r[4], reliability=rel,
+                               margin=compute_margin(c, r[6], rel == "ok"), named=bool(r[7])))
+    return out
 
 
 def result_detail(db: Session, result_id: int) -> tuple[ResultView, AssemblyConstituency | None] | None:
@@ -816,8 +931,11 @@ def result_detail(db: Session, result_id: int) -> tuple[ResultView, AssemblyCons
         ElectionResult.candidate_votes_json.is_not(None))).all()
     expected = expected_column_count([len(json.loads(j)) for j in sheet])
     ac = db.get(AssemblyConstituency, r.ac_id) if r.ac_id else db.scalar(
-        select(AssemblyConstituency).where(AssemblyConstituency.ac_number == r.ac_number,
-                                           AssemblyConstituency.delimitation == DELIM_CURRENT))
+        select(AssemblyConstituency)
+        .join(District, AssemblyConstituency.district_id == District.id)
+        .join(State, District.state_id == State.id)
+        .where(State.state_name == e.state, AssemblyConstituency.ac_number == r.ac_number,
+               AssemblyConstituency.delimitation == DELIM_CURRENT))
     return _result_view(r, e, expected), ac
 
 
@@ -936,7 +1054,7 @@ def build_booth_rows(db: Session, ac: AssemblyConstituency,
                      stations: list[PollingStation],
                      maps: list[MappingView] | None = None,
                      results: list[ResultView] | None = None) -> list[BoothRow]:
-    maps = evaluate_mappings(db) if maps is None else maps
+    maps = evaluate_mappings(db, _ac_state_id(db, ac)) if maps is None else maps
     results = results_for_ac(db, ac) if results is None else results
     aggs = record_aggregates(db, [s.id for s in stations])
     rolls = {r.polling_station_id: r for r in db.scalars(select(ElectoralRoll).where(
@@ -995,7 +1113,7 @@ def ac_overview(db: Session, ac_id: int) -> AcOverview | None:
     state = db.get(State, district.state_id) if district else None
     stations = db.scalars(select(PollingStation).where(PollingStation.ac_id == ac_id)
                           .order_by(PollingStation.part_number)).all()
-    maps = evaluate_mappings(db)
+    maps = evaluate_mappings(db, district.state_id)
     results = results_for_ac(db, ac)
     rows = build_booth_rows(db, ac, stations, maps, results)
     totals = RecordAggregate()
@@ -1014,6 +1132,7 @@ def ac_overview(db: Session, ac_id: int) -> AcOverview | None:
     related_acs = []
     for num, name in sorted(related, key=lambda x: (x[0] or 0)):
         other = db.scalar(select(AssemblyConstituency).where(
+            AssemblyConstituency.id.in_(_state_ac_ids(db, district.state_id)),
             AssemblyConstituency.ac_number == num,
             AssemblyConstituency.delimitation == rel_delim))
         related_acs.append({"ac_number": num, "name": name, "delimitation": rel_delim,
@@ -1050,7 +1169,7 @@ def booth_detail(db: Session, station_id: int) -> BoothDetail | None:
     ac = db.get(AssemblyConstituency, st.ac_id)
     district = db.get(District, ac.district_id)
     state = db.get(State, district.state_id) if district else None
-    maps = evaluate_mappings(db)
+    maps = evaluate_mappings(db, district.state_id)
     results = results_for_ac(db, ac)
     row = build_booth_rows(db, ac, [st], maps, results)[0]
     roll = db.scalar(select(ElectoralRoll).where(ElectoralRoll.polling_station_id == st.id))
@@ -1111,7 +1230,7 @@ def ac_changes(db: Session, ac_id: int) -> tuple[AssemblyConstituency, District,
     if ac is None:
         return None
     district = db.get(District, ac.district_id)
-    maps = evaluate_mappings(db)
+    maps = evaluate_mappings(db, district.state_id)
     if ac.delimitation == DELIM_CURRENT:
         relevant = [m for m in maps if m.to_ac_number == ac.ac_number]
     else:
@@ -1172,12 +1291,18 @@ class Alert:
     href: str | None = None
 
 
-def quality_overview(db: Session, backend: str) -> dict:
-    q = quality_report(db, backend)
+def quality_overview(db: Session, backend: str, state_id: int | None = None,
+                     include_results: bool = True) -> dict:
+    """`include_results=False` skips the full per-row result views (the page shows only counts)."""
+    sid = scope_state_id(db, state_id)
+    q = quality_report(db, backend, state_id=sid)
+    station_ids = list(db.scalars(select(PollingStation.id).where(
+        PollingStation.ac_id.in_(_state_ac_ids(db, sid)))))
     total = RecordAggregate()
-    for a in record_aggregates(db).values():
+    for a in (record_aggregates(db, station_ids).values() if station_ids else ()):
         total.add(a)
-    rolls = db.scalars(select(ElectoralRoll).where(ElectoralRoll.extraction_status == "extracted")
+    rolls = db.scalars(select(ElectoralRoll).where(ElectoralRoll.extraction_status == "extracted",
+                                                   ElectoralRoll.polling_station_id.in_(station_ids))
                        .order_by(ElectoralRoll.id)).all()
     roll_rows, alerts = [], []
     for r in rolls:
@@ -1215,17 +1340,18 @@ def quality_overview(db: Session, backend: str) -> dict:
                                 f"{s.total_electors:,} records, 0 validation flags, 0 duplicates, "
                                 f"mean confidence {s.mean_confidence * 100:.2f}%.", href))
 
-    mapping = mapping_summary_all(db)
+    mapping = mapping_summary_all(db, sid)
     if mapping["Review Required"]:
         alerts.append(Alert("warn", "Booth mapping",
                             f"{mapping['Review Required']} of {sum(mapping.values())} mapping relationships "
                             "need review",
                             "Historical and current part numbers are not stable, so these relationships are "
                             "not used as links until official evidence confirms them.", None))
-    rviews = all_result_views(db)
-    f20 = form20_quality_summary(rviews)
+    checks = _cached_checks(db, sid)
+    f20 = form20_quality_summary(checks)
     current_ids = dict(db.execute(select(AssemblyConstituency.ac_number, AssemblyConstituency.id)
-                                  .where(AssemblyConstituency.delimitation == DELIM_CURRENT)).all())
+                                  .where(AssemblyConstituency.delimitation == DELIM_CURRENT,
+                                         AssemblyConstituency.id.in_(_state_ac_ids(db, sid)))).all())
     for (year, acn), parts in f20["review_by_ac"].items():
         shown = ", ".join(map(str, parts[:10])) + (f" and {len(parts) - 10} more" if len(parts) > 10 else "")
         alerts.append(Alert("bad", f"Form 20 {year} · AC {acn}",
@@ -1233,42 +1359,54 @@ def quality_overview(db: Session, backend: str) -> dict:
                             f"Part {shown}: the extracted vote columns do not reconcile with the printed "
                             "result sheet. Margin and candidate interpretation withheld.",
                             f"/ac/{current_ids[acn]}/performance" if acn in current_ids else None))
-    if rviews:
+    if any(not r.named for r in checks):
         alerts.append(Alert("info", "Form 20", "Candidate names not attributed",
                             "Candidate names are rotated column headers that cannot be matched to vote "
                             "columns reliably; only unnamed leading/second vote counts are used.", None))
-    if any(r.reliability == "not_backfilled" for r in rviews):
+    if any(r.reliability == "not_backfilled" for r in checks):
         alerts.append(Alert("info", "Form 20", "Vote columns not backfilled",
                             "Run `python -m app backfill-form20` to enable booth margins.", None))
 
-    fetch_sources = db.execute(select(SourceFetch.source, func.count(),
-                                      _cnt(SourceFetch.ok.is_(True)))
-                               .group_by(SourceFetch.source)).all()
+    fetch_sources = [row for row in db.execute(select(SourceFetch.source, func.count(),
+                                                      _cnt(SourceFetch.ok.is_(True)))
+                                               .group_by(SourceFetch.source)).all()
+                     if _source_in_state(row[0], _scope_state_name(db, sid))]
     order = {"bad": 0, "warn": 1, "info": 2, "good": 3}
     alerts.sort(key=lambda a: order[a.level])
     return {"q": q, "totals": total, "rolls": roll_rows, "alerts": alerts,
-            "mapping": mapping, "results": rviews, "form20": f20,
+            "mapping": mapping, "results": all_result_views(db, sid) if include_results else [], "form20": f20,
             "fetch_sources": fetch_sources, "stations_with_roll": sum(1 for _ in rolls)}
 
 
 # --- home / navigation / search ------------------------------------------
-def default_ac_id(db: Session) -> int | None:
-    """Navigation default: the AC with official booth mapping, else the most results or stations."""
-    mapped = db.scalar(select(PartMapping.to_ac_number).where(PartMapping.to_ac_number.is_not(None))
-                       .group_by(PartMapping.to_ac_number).order_by(func.count().desc()).limit(1))
-    if mapped is not None:
+def _source_in_state(source: str | None, state_name: str | None) -> bool:
+    """A fetch source shown for a state: the shared ECI gateway, or the state's own sources."""
+    sp = spec(state_name)
+    return not (source or "").startswith("ceo_") or bool(
+        sp and any((source or "").startswith(p) for p in sp.source_prefixes))
+
+
+def default_ac_id(db: Session, state_id: int | None = None) -> int | None:
+    """Navigation default within a state: the AC with official booth mapping, else the most
+    results or stations. None when the state has no booth-level data."""
+    sid = scope_state_id(db, state_id)
+    in_state = AssemblyConstituency.id.in_(_state_ac_ids(db, sid))
+    counts = Counter(m.to_ac_number for m in _state_mapping_rows(db, sid) if m.to_ac_number is not None)
+    if counts:
+        mapped = counts.most_common(1)[0][0]
         ac_id = db.scalar(select(AssemblyConstituency.id).where(
-            AssemblyConstituency.ac_number == mapped, AssemblyConstituency.delimitation == DELIM_CURRENT))
+            in_state, AssemblyConstituency.ac_number == mapped,
+            AssemblyConstituency.delimitation == DELIM_CURRENT))
         if ac_id:
             return ac_id
     row = db.execute(select(ElectionResult.ac_id, func.count())
-                     .where(ElectionResult.ac_id.is_not(None))
+                     .where(ElectionResult.ac_id.in_(_state_ac_ids(db, sid)))
                      .group_by(ElectionResult.ac_id).order_by(func.count().desc())).first()
     if row:
         return row[0]
     row = db.execute(select(PollingStation.ac_id, func.count().label("n"))
                      .join(AssemblyConstituency, PollingStation.ac_id == AssemblyConstituency.id)
-                     .where(AssemblyConstituency.delimitation == DELIM_CURRENT)
+                     .where(AssemblyConstituency.delimitation == DELIM_CURRENT, in_state)
                      .group_by(PollingStation.ac_id).order_by(func.count().desc())).first()
     return row[0] if row else None
 
@@ -1346,13 +1484,17 @@ class AcAvailability:
         ]
 
 
-def all_availability(db: Session, ac_ids: list[int] | None = None) -> list[AcAvailability]:
+def all_availability(db: Session, ac_ids: list[int] | None = None,
+                     state_id: int | None = None) -> list[AcAvailability]:
+    """Availability for the given ACs, or for every AC of one state (default state)."""
     stmt = (select(AssemblyConstituency, District)
             .join(District, AssemblyConstituency.district_id == District.id)
             .order_by(District.district_name, AssemblyConstituency.delimitation.desc(),
                       AssemblyConstituency.ac_number))
     if ac_ids is not None:
         stmt = stmt.where(AssemblyConstituency.id.in_(ac_ids))
+    else:
+        stmt = stmt.where(District.state_id == scope_state_id(db, state_id))
     avs = {a.id: AcAvailability(a, d) for a, d in db.execute(stmt)}
     if not avs:
         return []
@@ -1383,21 +1525,33 @@ def all_availability(db: Session, ac_ids: list[int] | None = None) -> list[AcAva
             avs[ac_id].historical_parts_with_roll += n
             avs[ac_id].roll_years = sorted(set(avs[ac_id].roll_years) | {year})
 
-    # results: by ac_id, or by number for rows not yet linked (current delimitation only)
-    current_by_number = dict(db.execute(select(AssemblyConstituency.ac_number, AssemblyConstituency.id)
-                                        .where(AssemblyConstituency.delimitation == DELIM_CURRENT)).all())
-    for ac_id, ac_number, year, n in db.execute(
-            select(ElectionResult.ac_id, ElectionResult.ac_number, Election.election_year, func.count())
+    # results: by ac_id, or by number for rows not yet linked (current delimitation of the
+    # election's own state only — every state has an AC with the same number)
+    current_by_number = {(st_name, n): i for n, i, st_name in db.execute(
+        select(AssemblyConstituency.ac_number, AssemblyConstituency.id, State.state_name)
+        .join(District, AssemblyConstituency.district_id == District.id)
+        .join(State, District.state_id == State.id)
+        .where(AssemblyConstituency.delimitation == DELIM_CURRENT))}
+    for ac_id, ac_number, st_name, year, n in db.execute(
+            select(ElectionResult.ac_id, ElectionResult.ac_number, Election.state,
+                   Election.election_year, func.count())
             .join(Election, ElectionResult.election_id == Election.id)
-            .group_by(ElectionResult.ac_id, ElectionResult.ac_number, Election.election_year)):
-        target = ac_id if ac_id is not None else current_by_number.get(ac_number)
+            .group_by(ElectionResult.ac_id, ElectionResult.ac_number, Election.state,
+                      Election.election_year)):
+        target = ac_id if ac_id is not None else current_by_number.get((st_name, ac_number))
         if target in avs:
             avs[target].result_records += n
             avs[target].result_years = sorted(set(avs[target].result_years) | {year})
 
-    maps = evaluate_mappings(db)
-    acs_by_key = {(a.ac_number, a.delimitation): a.id for a in db.scalars(select(AssemblyConstituency))}
+    maps_by_state: dict[int, list[MappingView]] = {}
+    keys_by_state: dict[int, dict] = {}
     for av in avs.values():
+        sid = av.district.state_id
+        if sid not in maps_by_state:
+            maps_by_state[sid] = evaluate_mappings(db, sid)
+            keys_by_state[sid] = {(a.ac_number, a.delimitation): a.id for a in db.scalars(
+                select(AssemblyConstituency).where(AssemblyConstituency.id.in_(_state_ac_ids(db, sid))))}
+        maps, acs_by_key = maps_by_state[sid], keys_by_state[sid]
         if av.is_current:
             rel = [m for m in maps if m.to_ac_number == av.ac.ac_number]
             linked = {(m.from_ac_number, m.from_ac_name, "2003") for m in rel}
@@ -1414,9 +1568,13 @@ def all_availability(db: Session, ac_ids: list[int] | None = None) -> list[AcAva
     return list(avs.values())
 
 
-def state_summary(db: Session) -> dict:
-    avs = all_availability(db)
-    districts = db.scalars(select(District).order_by(District.district_name)).all()
+def state_summary(db: Session, state_id: int | None = None) -> dict:
+    sid = scope_state_id(db, state_id)
+    state = db.get(State, sid) if sid else None
+    sp = spec(state.state_name if state else None)
+    avs = all_availability(db, state_id=sid)
+    districts = db.scalars(select(District).where(District.state_id == sid)
+                           .order_by(District.district_name)).all()
     rows = []
     for d in districts:
         mine = [a for a in avs if a.district.id == d.id]
@@ -1436,11 +1594,36 @@ def state_summary(db: Session) -> dict:
         "stations_current": sum(a.current_stations for a in avs),
         "acs_with_stations": sum(1 for a in cur if a.current_stations),
         "electors": sum(a.historical_roll_records + a.current_roll_records for a in avs),
-        "mappings": db.scalar(select(func.count()).select_from(PartMapping)) or 0,
+        "mappings": len(_state_mapping_rows(db, sid)),
         "results": sum(a.result_records for a in avs),
-        "urls": db.scalar(select(func.count(func.distinct(SourceFetch.url)))) or 0,
         "district_rows": rows, "availability": avs,
+        "state": state, "booth_sources": bool(sp and sp.booth_sources),
+        "result_sources": bool(sp and sp.result_sources),
+        "form20_years": list(sp.form20_years) if sp else [],
     }
+
+
+def state_results_quality(db: Session, state_id: int | None = None) -> dict:
+    """Form 20 verified/review counts for a state — the same shared calculation as every other page."""
+    return form20_quality_summary(_cached_checks(db, state_id))
+
+
+_CHECKS_CACHE: dict[tuple, list] = {}
+
+
+def _cached_checks(db: Session, state_id: int | None) -> list[ResultCheck]:
+    """`result_checks`, reused while the state's rows are unchanged. Results are only ever
+    replaced by delete + insert, so the (row count, highest id) pair changes with any write."""
+    name = _scope_state_name(db, state_id)
+    key = (str(db.get_bind().url), name) + tuple(db.execute(
+        select(func.count(ElectionResult.id), func.max(ElectionResult.id))
+        .join(Election, ElectionResult.election_id == Election.id)
+        .where(Election.state == name)).one())
+    if key not in _CHECKS_CACHE:
+        for stale in [k for k in _CHECKS_CACHE if k[:2] == key[:2]]:   # one entry per state
+            del _CHECKS_CACHE[stale]
+        _CHECKS_CACHE[key] = result_checks(db, state_id)
+    return _CHECKS_CACHE[key]
 
 
 def ac_observations(av: AcAvailability, summaries: list[ElectionSummary],
@@ -1512,11 +1695,13 @@ def mapping_summary(rows: list["MappingRow"]) -> dict[str, int]:
     return counts
 
 
-def mapping_summary_all(db: Session) -> dict[str, int]:
-    """Mapping counts over every current constituency that has mapping relationships."""
+def mapping_summary_all(db: Session, state_id: int | None = None) -> dict[str, int]:
+    """Mapping counts over every current constituency of a state that has mapping relationships."""
+    sid = scope_state_id(db, state_id)
     total = {k: 0 for k in MAPPING_STATUSES}
-    numbers = {n for (n,) in db.execute(select(PartMapping.to_ac_number).distinct()) if n is not None}
+    numbers = {m.to_ac_number for m in _state_mapping_rows(db, sid) if m.to_ac_number is not None}
     for ac_id in db.scalars(select(AssemblyConstituency.id).where(
+            AssemblyConstituency.id.in_(_state_ac_ids(db, sid)),
             AssemblyConstituency.delimitation == DELIM_CURRENT,
             AssemblyConstituency.ac_number.in_(numbers))):
         for k, v in mapping_table(db, ac_id)[3].items():
@@ -1529,7 +1714,7 @@ def mapping_table(db: Session, ac_id: int):
     if ac is None:
         return None
     district = db.get(District, ac.district_id)
-    maps = evaluate_mappings(db)
+    maps = evaluate_mappings(db, district.state_id)
     if ac.delimitation == DELIM_CURRENT:
         rel = [m for m in maps if m.to_ac_number == ac.ac_number]
         hist_numbers = {m.from_ac_number for m in rel}
@@ -1571,6 +1756,7 @@ def mapping_table(db: Session, ac_id: int):
                 select(PollingStation, AssemblyConstituency.ac_number, AssemblyConstituency.ac_name)
                 .join(AssemblyConstituency, PollingStation.ac_id == AssemblyConstituency.id)
                 .where(AssemblyConstituency.delimitation != DELIM_CURRENT,
+                       AssemblyConstituency.id.in_(_state_ac_ids(db, district.state_id)),
                        AssemblyConstituency.ac_number.in_(hist_numbers),
                        PollingStation.edition == EDITION_2003)):
             if (acn, st.part_number) not in mapped:
@@ -1594,7 +1780,7 @@ class SearchHit:
 _PART_QUERY = re.compile(r"(?:part|booth)\s*(?:no\.?\s*)?(\d{1,4})", re.I)
 
 
-def search(db: Session, q: str, limit: int = 60) -> list[SearchHit]:
+def search(db: Session, q: str, limit: int = 60, state_id: int | None = None) -> list[SearchHit]:
     """Constituencies, polling stations and historical results matching a name or number.
 
     "Part 141" / "booth 10" search part numbers only. Hits for the featured constituency
@@ -1606,15 +1792,16 @@ def search(db: Session, q: str, limit: int = 60) -> list[SearchHit]:
     part_q = _PART_QUERY.fullmatch(q)
     number = int(part_q.group(1)) if part_q else (int(q) if q.isdigit() else None)
     like = f"%{q}%"
+    sid = scope_state_id(db, state_id)
     ac_rows = {a.id: (a, d) for a, d in db.execute(
         select(AssemblyConstituency, District)
-        .join(District, AssemblyConstituency.district_id == District.id))}
+        .join(District, AssemblyConstituency.district_id == District.id)
+        .where(District.state_id == sid))}
     featured_ids: set[int] = set()
-    featured = default_ac_id(db)
+    featured = default_ac_id(db, sid)
     if featured in ac_rows:
         fa = ac_rows[featured][0]
-        linked = {n for (n,) in db.execute(select(PartMapping.from_ac_number).distinct()
-                                           .where(PartMapping.to_ac_number == fa.ac_number))}
+        linked = {m.from_ac_number for m in _state_mapping_rows(db, sid) if m.to_ac_number == fa.ac_number}
         featured_ids = {featured} | {i for i, (a, _) in ac_rows.items()
                                      if a.delimitation != DELIM_CURRENT and a.ac_number in linked}
     ranked: list[tuple[int, SearchHit]] = []
@@ -1624,12 +1811,14 @@ def search(db: Session, q: str, limit: int = 60) -> list[SearchHit]:
 
     if not part_q:
         dist_filter = or_(District.district_name.ilike(like), District.district_name_local.ilike(like))
-        for d in db.scalars(select(District).where(dist_filter).order_by(District.district_name)):
+        for d in db.scalars(select(District).where(dist_filter, District.state_id == sid)
+                            .order_by(District.district_name)):
             add(SearchHit("District", d.district_name, d.district_name_local or "", f"/district/{d.id}", ""), None)
         ac_filter = [AssemblyConstituency.ac_name.ilike(like), AssemblyConstituency.ac_name_local.ilike(like)]
         if number is not None:
             ac_filter.append(AssemblyConstituency.ac_number == number)
-        for a in db.scalars(select(AssemblyConstituency).where(or_(*ac_filter))
+        for a in db.scalars(select(AssemblyConstituency).where(or_(*ac_filter),
+                                                               AssemblyConstituency.id.in_(list(ac_rows)))
                             .order_by(AssemblyConstituency.delimitation.desc(), AssemblyConstituency.ac_number)):
             d = ac_rows[a.id][1]
             label = f"AC {a.ac_number} — {a.ac_name}" if a.delimitation == DELIM_CURRENT \
@@ -1646,7 +1835,8 @@ def search(db: Session, q: str, limit: int = 60) -> list[SearchHit]:
                      PollingStation.area_description.ilike(like)]
         if number is not None:
             st_filter.append(PollingStation.part_number == number)
-    stations = db.scalars(select(PollingStation).where(or_(*st_filter))
+    stations = db.scalars(select(PollingStation).where(or_(*st_filter),
+                                                       PollingStation.ac_id.in_(list(ac_rows)))
                           .order_by(PollingStation.edition, PollingStation.part_number)).all()
     aggs = record_aggregates(db, [s.id for s in stations]) if stations else {}
     for s in stations:
@@ -1666,7 +1856,8 @@ def search(db: Session, q: str, limit: int = 60) -> list[SearchHit]:
         current_by_number = {a.ac_number: i for i, (a, _) in ac_rows.items() if a.delimitation == DELIM_CURRENT}
         for r, e in db.execute(select(ElectionResult, Election)
                                .join(Election, ElectionResult.election_id == Election.id)
-                               .where(ElectionResult.part_number == number)
+                               .where(ElectionResult.part_number == number,
+                                      Election.state == _scope_state_name(db, sid))
                                .order_by(Election.election_year, ElectionResult.ac_number)):
             ac_id = r.ac_id or current_by_number.get(r.ac_number)
             a, d = ac_rows.get(ac_id, (None, None))

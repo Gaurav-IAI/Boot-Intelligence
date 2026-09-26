@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..database.models import (
-    AssemblyConstituency, District, Elector, ElectoralRoll, ElectionResult,
+    AssemblyConstituency, District, Election, Elector, ElectoralRoll, ElectionResult,
     PartMapping, PollingStation, SourceFetch, State,
 )
 
@@ -227,36 +227,68 @@ class QualityReport:
         return (self.electors_valid / self.electors * 100.0) if self.electors else 0.0
 
 
-def quality_report(db: Session, backend: str = "") -> QualityReport:
+def quality_report(db: Session, backend: str = "", state_id: int | None = None) -> QualityReport:
+    """Counts over the whole database, or over one state's rows when `state_id` is given."""
+    from ..states import booth_state_id, mapping_state_id
+
     q = QualityReport(backend=backend)
-    q.states = db.scalar(select(func.count()).select_from(State)) or 0
-    q.districts = db.scalar(select(func.count()).select_from(District)) or 0
-    q.acs_current = db.scalar(select(func.count()).select_from(AssemblyConstituency)
-                              .where(AssemblyConstituency.delimitation == "current")) or 0
-    q.acs_2003 = db.scalar(select(func.count()).select_from(AssemblyConstituency)
-                           .where(AssemblyConstituency.delimitation == "2003")) or 0
-    q.polling_stations = db.scalar(select(func.count()).select_from(PollingStation)) or 0
-    q.rolls = db.scalar(select(func.count()).select_from(ElectoralRoll)) or 0
-    q.rolls_downloaded = db.scalar(select(func.count()).select_from(ElectoralRoll)
-                                   .where(ElectoralRoll.download_status == "downloaded")) or 0
-    q.rolls_extracted = db.scalar(select(func.count()).select_from(ElectoralRoll)
-                                  .where(ElectoralRoll.extraction_status == "extracted")) or 0
-    q.electors = db.scalar(select(func.count()).select_from(Elector)) or 0
-    q.electors_valid = db.scalar(select(func.count()).select_from(Elector)
-                                 .where(Elector.is_valid.is_(True))) or 0
-    q.electors_duplicate = db.scalar(select(func.count()).select_from(Elector)
-                                     .where(Elector.duplicate_kind.is_not(None))) or 0
-    q.electors_with_epic = db.scalar(select(func.count()).select_from(Elector)
-                                     .where(Elector.epic_number.is_not(None))) or 0
-    q.mean_confidence = round(db.scalar(
-        select(func.avg(Elector.extraction_confidence))) or 0.0, 4)
-    q.fetches = db.scalar(select(func.count()).select_from(SourceFetch)) or 0
-    q.fetches_ok = db.scalar(select(func.count()).select_from(SourceFetch)
-                             .where(SourceFetch.ok.is_(True))) or 0
-    q.part_mappings = db.scalar(select(func.count()).select_from(PartMapping)) or 0
-    q.election_results = db.scalar(select(func.count()).select_from(ElectionResult)) or 0
-    q.official_total = db.scalar(
-        select(func.sum(ElectoralRoll.official_elector_count))) or 0
-    q.extracted_total = db.scalar(
-        select(func.sum(ElectoralRoll.extracted_elector_count))) or 0
+    ac_ids = station_ids = roll_ids = None
+    if state_id is not None:
+        ac_ids = (select(AssemblyConstituency.id)
+                  .join(District, AssemblyConstituency.district_id == District.id)
+                  .where(District.state_id == state_id))
+        station_ids = select(PollingStation.id).where(PollingStation.ac_id.in_(ac_ids))
+        roll_ids = select(ElectoralRoll.id).where(ElectoralRoll.polling_station_id.in_(station_ids))
+
+    def count(model, *where):
+        stmt = select(func.count()).select_from(model)
+        if state_id is not None:
+            scope = {State: State.id == state_id, District: District.state_id == state_id,
+                     AssemblyConstituency: AssemblyConstituency.id.in_(ac_ids),
+                     PollingStation: PollingStation.id.in_(station_ids),
+                     ElectoralRoll: ElectoralRoll.id.in_(roll_ids),
+                     Elector: Elector.electoral_roll_id.in_(roll_ids)}
+            if model in scope:
+                stmt = stmt.where(scope[model])
+        return db.scalar(stmt.where(*where)) or 0
+
+    def roll_sum(col):
+        stmt = select(func.sum(col))
+        if roll_ids is not None:
+            stmt = stmt.where(ElectoralRoll.id.in_(roll_ids))
+        return db.scalar(stmt) or 0
+
+    q.states = count(State)
+    q.districts = count(District)
+    q.acs_current = count(AssemblyConstituency, AssemblyConstituency.delimitation == "current")
+    q.acs_2003 = count(AssemblyConstituency, AssemblyConstituency.delimitation == "2003")
+    q.polling_stations = count(PollingStation)
+    q.rolls = count(ElectoralRoll)
+    q.rolls_downloaded = count(ElectoralRoll, ElectoralRoll.download_status == "downloaded")
+    q.rolls_extracted = count(ElectoralRoll, ElectoralRoll.extraction_status == "extracted")
+    q.electors = count(Elector)
+    q.electors_valid = count(Elector, Elector.is_valid.is_(True))
+    q.electors_duplicate = count(Elector, Elector.duplicate_kind.is_not(None))
+    q.electors_with_epic = count(Elector, Elector.epic_number.is_not(None))
+    conf = select(func.avg(Elector.extraction_confidence))
+    if roll_ids is not None:
+        conf = conf.where(Elector.electoral_roll_id.in_(roll_ids))
+    q.mean_confidence = round(db.scalar(conf) or 0.0, 4)
+    # fetches are shared across states (the ECI gateway serves all of them)
+    q.fetches = count(SourceFetch)
+    q.fetches_ok = count(SourceFetch, SourceFetch.ok.is_(True))
+    if state_id is None:
+        q.part_mappings = count(PartMapping)
+        q.election_results = count(ElectionResult)
+    else:
+        booth = booth_state_id(db)
+        q.part_mappings = sum(1 for (sid,) in db.execute(select(PartMapping.state_id))
+                              if mapping_state_id(sid, booth) == state_id)
+        state_name = db.scalar(select(State.state_name).where(State.id == state_id))
+        q.election_results = db.scalar(
+            select(func.count()).select_from(ElectionResult)
+            .join(Election, ElectionResult.election_id == Election.id)
+            .where(Election.state == state_name)) or 0
+    q.official_total = roll_sum(ElectoralRoll.official_elector_count)
+    q.extracted_total = roll_sum(ElectoralRoll.extracted_elector_count)
     return q

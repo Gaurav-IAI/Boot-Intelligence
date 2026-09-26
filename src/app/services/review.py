@@ -20,7 +20,8 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ..database.models import AssemblyConstituency as AC
-from ..database.models import Election, ElectionResult, Elector, ElectoralRoll, PollingStation
+from ..database.models import District, Election, ElectionResult, Elector, ElectoralRoll, PollingStation
+from ..states import booth_state_id
 
 
 def _write_csv(path: Path, header: list[str], rows: list[list]) -> None:
@@ -36,7 +37,9 @@ def _mapping_rows(db: Session) -> list[list]:
     targets = sorted({m.to_ac_number for m in evaluate_mappings(db) if m.to_ac_number is not None})
     out = []
     for number in targets:
-        ac = (db.query(AC).filter(AC.ac_number == number, AC.delimitation == "current")
+        ac = (db.query(AC).join(District, AC.district_id == District.id)
+              .filter(District.state_id == booth_state_id(db), AC.ac_number == number,
+                      AC.delimitation == "current")
               .order_by(AC.id).first())
         if ac is None:
             continue

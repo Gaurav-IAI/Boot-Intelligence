@@ -22,6 +22,8 @@ pypdf>=6.0
 Pillow>=11.0
 pytesseract>=0.3.13
 numpy>=2.1
+xlrd>=2.0            # legacy .xls (CEO Uttar Pradesh Form 20)
+openpyxl>=3.1        # .xlsx (CEO Uttar Pradesh Form 20, some 2022 files)
 
 # --- CLI / web ---
 typer>=0.15

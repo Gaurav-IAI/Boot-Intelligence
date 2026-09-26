@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}Election Data Intelligence{% endblock %} · Uttarakhand</title>
+<title>{% block title %}Election Data Intelligence{% endblock %} · {{ current_state.state_name if current_state else 'India' }}</title>
 <style>
   :root{
     --bg:#f4f6fa; --surface:#fff; --ink:#0f1c2e; --ink2:#46556d; --muted:#6f7d92;
@@ -34,6 +34,12 @@
   .search input{width:280px;max-width:100%;padding:8px 12px;border-radius:7px;border:1px solid #2b4a75;
                 background:#12305a;color:#fff;font:inherit;font-size:14px}
   .search input::placeholder{color:#91a8c8}
+  .statepick{display:flex;align-items:center;gap:6px}
+  .statepick label{color:#a9bbd6;font-size:12px;font-weight:600}
+  .statepick select{padding:7px 10px;border-radius:7px;border:1px solid #2b4a75;background:#12305a;
+                    color:#fff;font:inherit;font-size:14px;font-weight:600;cursor:pointer}
+  .statepick button{padding:7px 10px;border-radius:7px;border:1px solid #2b4a75;background:#16345c;color:#fff;font:inherit;font-size:13px}
+  nav.nav span.off{color:#6f86a8;padding:7px 12px;font-size:14px;font-weight:600;cursor:not-allowed}
   .crumbbar{background:var(--surface);border-bottom:1px solid var(--line)}
   .crumbs{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding-block:9px;font-size:13.5px;color:var(--muted)}
   .crumbs a{font-weight:600}
@@ -196,12 +202,28 @@
 <body>
 <header class="top">
   <div class="wrap topbar">
-    <a class="brand" href="/"><b>Election Data Intelligence</b><small>Uttarakhand · official election data</small></a>
+    <a class="brand" href="/"><b>Election Data Intelligence</b><small>{{ current_state.state_name if current_state else 'India' }} · official election data</small></a>
+    {% if states|length > 1 %}
+    <form class="statepick" action="/" method="get">
+      <label for="state-pick">State</label>
+      <select id="state-pick" name="state" onchange="this.form.submit()">
+        {% for st in states %}
+        <option value="{{ st.state_code }}" {{ 'selected' if current_state and st.id == current_state.id }}>{{ st.state_name }}</option>
+        {% endfor %}
+      </select>
+      <noscript><button type="submit">Go</button></noscript>
+    </form>
+    {% endif %}
     <nav class="nav" aria-label="Main">
       <a href="/" class="{{ 'on' if active == 'dashboard' }}">Dashboard</a>
       <a href="/constituencies" class="{{ 'on' if active == 'constituencies' }}">Constituencies</a>
-      <a href="{{ '/ac/%s/performance'|format(nav_ac) if nav_ac else '/' }}" class="{{ 'on' if active == 'results' }}">Historical Results</a>
-      <a href="{{ '/ac/%s/changes'|format(nav_ac) if nav_ac else '/' }}" class="{{ 'on' if active == 'mapping' }}">Booth Mapping</a>
+      {% if nav_ac %}
+      <a href="/ac/{{ nav_ac }}/performance" class="{{ 'on' if active == 'results' }}">Historical Results</a>
+      <a href="/ac/{{ nav_ac }}/changes" class="{{ 'on' if active == 'mapping' }}">Booth Mapping</a>
+      {% else %}
+      <span class="off" title="Not yet available for this state">Historical Results</span>
+      <span class="off" title="Not yet available for this state">Booth Mapping</span>
+      {% endif %}
       <a href="/quality" class="{{ 'on' if active == 'quality' }}">Data Quality</a>
     </nav>
     <form class="search" action="/search" method="get" role="search">
@@ -220,7 +242,7 @@
 {% endif %}
 <main class="wrap">{% block body %}{% endblock %}</main>
 <footer class="wrap foot">
-  All figures are computed from official public sources (Election Commission of India, CEO Uttarakhand).
+  All figures are computed from official public sources (Election Commission of India{% if booth_sources or result_sources %}, CEO {{ current_state.state_name }}{% endif %}).
   No predictions and no individual-level profiling.
 </footer>
 <script>

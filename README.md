@@ -36,11 +36,76 @@ The remaining 10 records are **genuine gaps in the published rolls** — deleted
 electors whose serials appear nowhere in the source PDFs. Verified word by word,
 not assumed.
 
+### States covered
+
+The dashboard has a **State** dropdown in the header. Each state has its own
+dashboard, constituency list, search and data-quality page.
+
+| State | Loaded from | Depth |
+|---|---|---|
+| Uttarakhand (S28) | ECI + CEO Uttarakhand | everything above |
+| Uttar Pradesh (S24) | ECI + CEO Uttar Pradesh + district election offices | constituencies, Form 20 booth results 2012/2017/2022, current polling stations (Ghaziabad so far) |
+| Telangana (S29) | ECI | districts and constituencies only |
+
+**Uttar Pradesh results** come from the CEO's Form 20 Excel workbooks (typed cells,
+no OCR), with candidate names and parties as printed. They are loaded on request,
+not by `serve`, because there are about 1,200 workbooks (roughly an hour to download):
+
+```bash
+python -m app results --state "Uttar Pradesh" --district Agra --years 2022   # a pilot
+python -m app results --state "Uttar Pradesh"                                # everything
+```
+
+Loaded on 2026-09-26: **1,097 of 1,209 constituency-years (all 403 ACs appear in at
+least one year), 408,005 booth rows, 407,882 of which reconcile exactly with their
+printed totals.** The rest are not stored:
+
+- 107 sheets do not reconcile with themselves: there is no total column, or the printed
+  total contradicts the candidate columns.
+- 1 workbook is password-encrypted by the publisher.
+- 4 are unreachable (ACs 264/265 in 2017 and 2022). The site's grid pager serves 2012
+  files on page 2, and links from another year's folder are refused.
+
+The workbooks come in several hand-made layouts (English and Hindi, .xls and .xlsx).
+The reader tries each layout and keeps the one in which the most rows reconcile. A
+table whose "booth numbers" repeat is refused even if its arithmetic works.
+
+Re-running skips constituency-years already stored; `--refresh` re-processes them.
+All warnings are written to `data/processed/review/results_uttar_pradesh_warnings.txt`.
+2007 is not loaded, because it uses the pre-2008 constituency numbers.
+
+**UP current polling stations** come from the district polling-station lists issued
+for the SIR 2026 roll. Each district publishes its own PDFs, so districts are added one
+at a time:
+
+```bash
+python -m app stations --district Ghaziabad     # ACs 53-58: 3,395 stations, 2,901,538 electors listed
+```
+
+Each station stores its building, locality, polling area and elector count. Where a
+list prints its own total (58 Dholana: 123,985), the station counts add up to it
+exactly.
+
+UP electoral rolls are not loaded (the 2026 rolls are captcha-gated). UP booth mapping
+is not available either: UP publishes no official 2003-to-2026 part mapping like
+Uttarakhand's, and a mapping inferred from OCR'd 2003 cover pages could at most be
+"Possible", never Verified.
+
+**Telangana results are not loaded.** The CEO publishes Form 20 only as scanned
+PDFs. Local OCR (Tesseract, RapidOCR) reconciled under 10% of rows against the
+sheet's own arithmetic, so nothing below the verification standard is stored.
+
+Nothing is estimated for data that is not loaded. AC numbers repeat across states
+(each state has an AC 19), so Form 20 results and part mappings are matched by
+number only within their own state.
+
 ---
 
 ## Setup
 
 Requires **Python 3.11+** (developed on 3.14) and **Docker** for PostgreSQL.
+For a server install, a systemd unit, or an offline copy, see
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ```bash
 cd "path/to/POC"
@@ -82,8 +147,8 @@ schema and runs the whole flow as one pipeline:
 
 | Stage | Work | Runs |
 |---|---|---|
-| hierarchy | state → 13 districts → 70 constituencies (ECI) | when missing |
-| parts, ps-list | current polling stations + names/areas (CEO UK) | when missing |
+| hierarchy | for each state: state → districts → constituencies (ECI); Uttarakhand has 13 / 70 | when missing |
+| parts, ps-list | current polling stations + names/areas (CEO UK); this stage and every later network stage run for Uttarakhand only | when missing |
 | rolls | download → text/scan check → extract → validate → duplicates → store; scanned PDFs are recorded as blocked | when missing |
 | mapping | official 2003 → 2025 village mapping, looked up by the villages printed on each roll | when missing |
 | ps-list-2024 | for constituencies with mapping rows in review: download the scanned Polling Station List 2024 and read its table by OCR (Tesseract + `hin`) into `data/processed/ocr/ps_list_2024_AC{n}.json`. Used only to show a "Possible: Part N" suggestion on review rows — OCR text similarity never makes a row Verified | when missing |
@@ -113,14 +178,17 @@ python -m app inspect-roll        --roll data/raw/roll2003/AC15/P0006.pdf
 python -m app extract-roll        --roll data/raw/roll2003/AC15/P0006.pdf --out out.json
 python -m app analyze-booth       --part 6 --edition ROLL-2003
 python -m app pipeline            --district Dehradun --ac 19 --limit 5
+python -m app results             --state "Uttar Pradesh" [--years 2022] [--district Agra] [--acs 86,87] [--refresh]
+python -m app stations            [--district Ghaziabad] [--acs 55] [--refresh]
 python -m app quality
 python -m app serve               --host 127.0.0.1 --port 8000
 ```
 
 Global flags on `pipeline`: `--dry-run`, `--missing-only`, `--resume/--no-resume`,
 `--limit`, `--parts` (default `6,7,8,9,10`), `--all-districts/--district-only`,
-`--concurrency`, `--skip-form20`, `--skip-mapping`, `--quiet`.
-Flags on `serve`: `--host`, `--port`, `--refresh`, `--skip-pipeline`, `--concurrency`, `--verbose`.
+`--concurrency`, `--skip-form20`, `--skip-mapping`, `--states`, `--quiet`.
+Flags on `serve`: `--host`, `--port`, `--refresh`, `--skip-pipeline`, `--concurrency`, `--states`, `--verbose`.
+`--states` limits ECI discovery, e.g. `--states Uttarakhand,Telangana` (default `all`).
 
 `--resume` (default) reuses already-downloaded PDFs, and every write is an upsert,
 so re-running is safe and idempotent.
@@ -202,6 +270,7 @@ independent of how a PDF was obtained, so a manually downloaded SIR 2026 roll ca
 be fed straight to `extract-roll`.
 
 Full reasoning: [docs/DATA_SOURCE_RESEARCH.md](docs/DATA_SOURCE_RESEARCH.md).
+One-page overview of the whole project: [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md).
 
 ---
 
@@ -232,11 +301,12 @@ src/app/
   config.py  http_client.py  settings; retries, backoff, legacy TLS, politeness
   sources/eci_api/           ECI gateway adapter (public endpoints only)
   sources/ceo_uttarakhand/   SIR parts, Legacy Roll 2003, Form 20
+  sources/ceo_uttar_pradesh/ Form 20 (ASP.NET postback discovery, Excel)
   extraction/pdf/            download, checksum, text-vs-scan detection
   extraction/ocr/            Tesseract Devanagari, degrades honestly when absent
-  extraction/parsers/        krutidev, devanagari_fix, roll_2003, ps_list_2026, form20_2012
+  extraction/parsers/        krutidev, devanagari_fix, roll_2003, ps_list_2026, form20_2012, form20_up_xls
   database/                  models + idempotent repositories
-  services/                  pipeline, validation
+  services/                  pipeline, validation, state_results (UP/Telangana Form 20)
   analytics/                 booth statistics, quality report
   browser/                   Playwright research helpers (NOT in the pipeline)
   cli/  web/                 Typer CLI, FastAPI dashboard
@@ -246,7 +316,9 @@ data/raw/                    downloaded PDFs (git-ignored)
 ```
 
 One source = one adapter, so adding a state means adding an adapter, not
-rewriting the database or the pipeline.
+rewriting the database or the pipeline. The state list lives in `src/app/states.py`.
+A new state's constituency list needs only a registry entry. Its booth-level data
+needs a CEO adapter plus `booth_sources=True`.
 
 ---
 
@@ -257,18 +329,24 @@ rewriting the database or the pipeline.
 2. **Elector records are from the 2003 roll**, a different delimitation from the
    current 70 ACs. The official `part_mapping` links them; part numbers are never
    assumed stable.
-3. **Form 20 candidate names are not attributed** to vote columns — the rotated
-   headers cannot be matched reliably, so only labelled totals are stored.
+3. **Uttarakhand Form 20 candidate names are not attributed** to vote columns — the
+   rotated headers cannot be matched reliably, so only labelled totals are stored.
+   (UP names are attributed: they are typed column headers in the Excel sheets.)
 4. **Form 20 2017/2022 need OCR**, and Tesseract was not installed in the
    development environment, so that path is implemented and unit-tested but not
    demonstrated on a real scan.
-5. **PS List 2026 cell boundaries** are imprecise (merged Excel cells); locality
+5. **Telangana Form 20 is not loaded** — scanned PDFs that local OCR could not read
+   reliably (see "States covered").
+6. **Some UP sheets disagree with their own printed totals** — a sheet's grand total
+   can differ from the sum of its booth rows, and a few rows have blank cells. Those
+   rows show as Review required; the mismatches are reported by `results`.
+7. **PS List 2026 cell boundaries** are imprecise (merged Excel cells); locality
    and building are stored joined rather than wrongly split.
-6. **~3% of elector rows** carry at least one unmapped conjunct glyph, reflected
+8. **~3% of elector rows** carry at least one unmapped conjunct glyph, reflected
    in their confidence score.
-7. **Section numbers** are not printed in the 2003 roll format, so
+9. **Section numbers** are not printed in the 2003 roll format, so
    `section_number` stays NULL.
-8. **Scale is untested** — five booths, not seventy constituencies.
+10. **Scale is untested** — five booths, not seventy constituencies.
 
 ## Next steps
 

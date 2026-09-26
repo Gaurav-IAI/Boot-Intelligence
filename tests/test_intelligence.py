@@ -496,6 +496,6 @@ def test_additive_migration_adds_columns_to_an_old_table():
         c.execute(text("CREATE TABLE election_results (id INTEGER PRIMARY KEY, votes INTEGER)"))
     added = apply_additive_migrations(engine)
     cols = {c["name"] for c in inspect(engine).get_columns("election_results")}
-    assert {"candidate_votes_json", "vote_sum_matches", "votes"} <= cols
-    assert len(added) == 2
+    assert {"candidate_votes_json", "vote_sum_matches", "candidates_json", "votes"} <= cols
+    assert len(added) == 3
     assert apply_additive_migrations(engine) == []       # idempotent

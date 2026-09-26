@@ -15,7 +15,7 @@
 
 {% for e in summaries %}
 <section>
-  <div class="sh"><h2>HISTORICAL RESULT — {{ e.year }}</h2><span class="muted small">Source: CEO Uttarakhand — Form 20</span></div>
+  <div class="sh"><h2>HISTORICAL RESULT — {{ e.year }}</h2><span class="muted small">Source: CEO {{ current_state.state_name }} — Form 20</span></div>
   <div class="panel hist"><p>Results retain the original {{ e.year }} polling-station numbering. They are not
     automatically assigned to current 2026 polling stations.</p></div>
 
@@ -57,8 +57,8 @@
         <td class="num" data-v="{{ r.part_number }}"><a href="/result/{{ r.id }}"><strong>{{ r.part_number }}</strong></a></td>
         <td>{{ r.station_name or '—' }}</td>
         <td class="num" data-v="{{ r.total_votes if r.total_votes is not none else '' }}">{{ r.total_votes|n }}</td>
-        <td class="num" data-v="{{ m.leader_votes if m else '' }}">{{ m.leader_votes|n if m else '—' }}</td>
-        <td class="num" data-v="{{ m.runner_up_votes if m else '' }}">{{ m.runner_up_votes|n if m else '—' }}</td>
+        <td class="num" data-v="{{ m.leader_votes if m else '' }}">{{ m.leader_votes|n if m else '—' }}{% if r.leader %}<div class="muted small">{{ r.leader.name }}{% if r.leader.party %} ({{ r.leader.party }}){% endif %}</div>{% endif %}</td>
+        <td class="num" data-v="{{ m.runner_up_votes if m else '' }}">{{ m.runner_up_votes|n if m else '—' }}{% if r.runner_up %}<div class="muted small">{{ r.runner_up.name }}{% if r.runner_up.party %} ({{ r.runner_up.party }}){% endif %}</div>{% endif %}</td>
         <td class="num" data-v="{{ m.margin if m else '' }}"><strong>{{ m.margin|n if m else '—' }}</strong></td>
         <td>{% if r.verified %}{{ ui.chip('good', 'Verified', r.reliability_note) }}{% else %}{{ ui.chip('warn', 'Review required', r.reliability_note) }}{% endif %}</td>
       </tr>
@@ -67,8 +67,14 @@
     </table>
     </div>
   </div>
+  {% if results|selectattr('year', 'equalto', e.year)|selectattr('candidates')|list %}
+  <p class="muted small">Top and second votes are the two highest candidate vote columns at each verified booth. Candidate
+    names are shown as printed in the source sheet's column headers; they are withheld on rows that require review
+    and where two columns are tied.</p>
+  {% else %}
   <p class="muted small">Top and second votes are the two highest candidate vote columns at each verified booth. Candidate
     names are not attributed because they cannot be reliably matched to the vote columns in the source.</p>
+  {% endif %}
 </section>
 {% endfor %}
 {% endblock %}

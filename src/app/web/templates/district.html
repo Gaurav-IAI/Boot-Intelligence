@@ -2,7 +2,7 @@
 {% import "_macros.html" as ui %}
 {% block title %}{{ district.district_name }}{% endblock %}
 {% block body %}
-<div class="eyebrow">District · Uttarakhand</div>
+<div class="eyebrow">District · {{ current_state.state_name }}</div>
 <h1>{{ district.district_name|upper }}</h1>
 <div class="subhead">{{ district.district_name_local or '' }} · {{ current|length }} assembly constituencies</div>
 
