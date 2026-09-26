@@ -17,7 +17,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 
 from ..analytics.intelligence import (
-    ac_observations, ac_overview, all_availability, booth_detail, default_ac_id,
+    ac_level_results, ac_observations, ac_overview, all_availability, booth_detail, default_ac_id,
     mapping_summary_all, mapping_table, quality_overview, result_detail, results_for_ac, search,
     source_label, state_results_quality, state_summary, summarize_results,
 )
@@ -151,7 +151,8 @@ def ac_view(request: Request, ac_id: int):
                    AssemblyConstituency.delimitation == "current"))
         return _render(request, "ac.html", db, state, active="constituencies",
                        crumbs=_crumbs(db, state, o.district, o.ac), o=o, av=av, same_number=same_number,
-                       observations=ac_observations(av, o.elections, roll_stats))
+                       observations=ac_observations(av, o.elections, roll_stats),
+                       ac_elections=ac_level_results(db, o.ac))
 
 
 @app.get("/ac/{ac_id}/performance", response_class=HTMLResponse)
@@ -163,7 +164,8 @@ def ac_performance(request: Request, ac_id: int):
         state = _current_state(request, db, d)
         return _render(request, "performance.html", db, state, active="results",
                        crumbs=_crumbs(db, state, d, ac, tail="Historical results"),
-                       ac=ac, district=d, results=results, summaries=summarize_results(results))
+                       ac=ac, district=d, results=results, summaries=summarize_results(results),
+                       ac_elections=ac_level_results(db, ac))
 
 
 @app.get("/ac/{ac_id}/changes", response_class=HTMLResponse)

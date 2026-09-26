@@ -7,13 +7,14 @@
 <div class="h1sub">Election Data Intelligence</div>
 <p class="lede">Booth-level election data, historical results, mapping and data-quality intelligence — from official sources.</p>
 {% set sname = current_state.state_name if current_state else 'this state' %}
-{% if not s.booth_sources and (s.results or s.stations_current) %}
+{% if not s.booth_sources and (s.results or s.stations_current or s.acs_with_ac_results) %}
 <div class="panel mt"><p><strong>Partial booth-level data.</strong> Districts and assembly constituencies for
   {{ sname }} come from the Election Commission of India{% if s.results %}, polling-station-wise results from the
-  CEO {{ sname }} Form 20 sheets{% endif %}{% if s.stations_current %}, and current polling stations from district
+  CEO {{ sname }} Form 20 sheets{% endif %}{% if s.acs_with_ac_results %}, constituency-wise candidate results
+  ({{ s.ac_result_years|join(', ') }}) from the Election Commission's statistical reports{% endif %}{% if s.stations_current %}, and current polling stations from district
   polling-station lists for {{ s.acs_with_stations }} of {{ s.acs_current }} constituencies{% endif %}.
-  {% if s.stations_current %}Electoral rolls{% else %}Current polling stations, electoral rolls{% endif %} and booth
-  mapping are not yet available for this state.</p></div>
+  {% if s.stations_current %}Electoral rolls{% else %}Current polling stations, electoral rolls{% endif %}{% if not s.results %},
+  booth-level (Form 20) results{% endif %} and booth mapping are not yet available for this state.</p></div>
 {% elif not s.booth_sources %}
 <div class="panel mt"><p><strong>Constituency list only.</strong> Districts and assembly constituencies for
   {{ sname }} come from the Election Commission of India. Polling
@@ -23,7 +24,10 @@
 <div class="bigstats">
   <div class="bs"><div class="v">{{ s.districts }}</div><div class="l">Districts</div></div>
   <div class="bs"><div class="v">{{ s.acs_current }}</div><div class="l">Assembly Constituencies</div></div>
-  {% if s.booth_sources or not s.results %}
+  {% if not s.booth_sources and not s.results and s.acs_with_ac_results %}
+  <div class="bs"><div class="v">{{ s.acs_with_ac_results }}</div><div class="l">Constituencies with Results</div>
+    <div class="s">candidate-wise results for {{ s.ac_result_years|join(' and ') }} (ECI statistical reports)</div></div>
+  {% elif s.booth_sources or not s.results %}
   <div class="bs"><div class="v">{{ s.stations_current|n }}</div><div class="l">Current Polling Stations</div>
     <div class="s">current list ingested for {{ s.acs_with_stations }} of {{ s.acs_current }} constituencies</div></div>
   {% else %}
@@ -72,6 +76,12 @@
         <td>{{ s.results|n }} polling-station result rows across {{ result_acs|length }} of {{ s.acs_current }} constituencies</td>
         <td>{{ ui.chip('good' if result_acs|length == s.acs_current else 'warn', 'Available' if result_acs|length == s.acs_current else 'Partial') }}</td></tr>
       {% endif %}
+      {% if s.acs_with_ac_results %}
+      <tr><td><strong>Constituency results (ECI)</strong> {{ ui.ctx('hist', 'Historical ' ~ s.ac_result_years|join(', ')) }}</td>
+        <td>Candidate-wise votes for {{ s.acs_with_ac_results }} of {{ s.acs_current }} constituencies, from the Election
+          Commission of India's statistical reports (constituency totals, not booth-wise)</td>
+        <td>{{ ui.chip('good' if s.acs_with_ac_results == s.acs_current else 'warn', 'Available' if s.acs_with_ac_results == s.acs_current else 'Partial') }}</td></tr>
+      {% endif %}
       {% set mtotal = mapping.values()|sum %}
       {% if featured and mtotal %}
       <tr><td><strong>Historical-to-current booth mapping</strong></td>
@@ -104,9 +114,10 @@
       <td><div class="chips">
         {% if r.stations %}{{ ui.chip('good', 'Current polling stations') }}{% endif %}
         {% if r.has_results %}{{ ui.chip('good', 'Historical results') }}{% endif %}
+        {% if r.has_ac_results and not r.has_results %}{{ ui.chip('good', 'Constituency results') }}{% endif %}
         {% if r.has_historical_roll %}{{ ui.chip('good', '2003 electoral roll') }}{% endif %}
         {% if r.has_mapping %}{{ ui.chip('warn', 'Booth mapping (partial)') }}{% endif %}
-        {% if not (r.stations or r.has_results or r.has_historical_roll) %}<span class="muted small">Constituency list only</span>{% endif %}
+        {% if not (r.stations or r.has_results or r.has_ac_results or r.has_historical_roll) %}<span class="muted small">Constituency list only</span>{% endif %}
       </div></td>
     </tr>
     {% endfor %}
