@@ -17,23 +17,24 @@ run `setup_server.sh`**. It is meant for fresh servers and would also reconfigur
 the firewall and PostgreSQL. Use the update script instead. It changes only the code
 and adds data:
 
-**Recommended: import the Uttar Pradesh export (~35 MB).** The data owner exports UP on
-the workstation:
+**How data reaches production.** The Uttar Pradesh data travels as a small export
+(`deploy/up_data.sqlite3.gz`, ~35 MB) committed in the repository.
 
-```powershell
-python -m app export-state --state "Uttar Pradesh" --from "sqlite:///data/uk_election.sqlite3" --out up_data.sqlite3.gz
-```
+- **Data owner (workstation), whenever the data changes:**
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File scripts\publish_data.ps1
+  ```
+  This exports UP from the full local database, then commits and pushes the file. If
+  that pushes a branch other than `main`, merge it into `main`.
 
-and commits it as `deploy/up_data.sqlite3.gz` (it is in the repository, so the server
-gets it with `git pull`). On the server:
-
-```bash
-cd /opt/booth-intel                      # the deployed git checkout
-git fetch origin && git checkout main && git pull
-sudo APP_DIR=/opt/booth-intel BRANCH=main \
-     STATE_FILE=/opt/booth-intel/deploy/up_data.sqlite3.gz \
-     bash scripts/deploy/update_existing.sh
-```
+- **Server administrator, to update (the same command every time):**
+  ```bash
+  cd /opt/booth-intel && sudo git pull          # the first time only, to get this script
+  sudo bash /opt/booth-intel/scripts/deploy/update_existing.sh
+  ```
+  The script pulls `main` itself, imports every `deploy/*.sqlite3.gz` that changed since
+  its last run, and skips unchanged files. So it's also safe to run when only the code
+  changed.
 
 In order, it:
 1. backs up the database (`/var/backups/booth-intel/before-update-*`);

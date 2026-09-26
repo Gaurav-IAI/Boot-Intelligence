@@ -8,21 +8,25 @@
 #   3. Python packages (adds xlrd, openpyxl)
 #   4. schema: new nullable columns are added automatically (additive migrations)
 #   5-6. data, one of:
-#      STATE_FILE (recommended): import a state export (up_data.sqlite3.gz, ~35 MB, made with
-#        `python -m app export-state`) — only that state's rows are added/replaced; no
-#        downloads, no parsing, a few minutes
-#      or load from the sources: UP + Telangana constituencies (ECI), UP Form 20 results, UP
-#        polling stations — optionally parsing data/raw from DATA_BUNDLE instead of downloading
+#      state exports (default): every deploy/*.sqlite3.gz committed in the repository (made
+#        with scripts/publish_data.ps1) is imported — only the states in each file are
+#        added/replaced; no downloads, no parsing, a few minutes. A file already imported
+#        unchanged is skipped, so running this after every `git pull` is cheap.
+#        STATE_FILE / STATE_FILE_URL import one given file instead.
+#      if there is no export: load from the sources — UP + Telangana constituencies (ECI),
+#        UP Form 20 results, UP polling stations (DATA_BUNDLE: parse data/raw, no downloads)
 #   7. restart the dashboard service
 #
 # Usage (as root, or as the user owning $APP_DIR with sudo for the restart):
+#   sudo bash /opt/booth-intel/scripts/deploy/update_existing.sh        # the usual update
 #   sudo STATE_FILE=/root/up_data.sqlite3.gz bash scripts/deploy/update_existing.sh
 #   sudo STATE_FILE_URL='https://...direct-link...' bash scripts/deploy/update_existing.sh
 #   sudo DATA_BUNDLE=/root/booth-data.tar.gz bash scripts/deploy/update_existing.sh
 #   sudo APP_DIR=/opt/booth-intel BRANCH=main bash scripts/deploy/update_existing.sh
 #
 # Options: APP_DIR (default /opt/booth-intel), BRANCH (default main), SERVICE (default
-# booth-intel), STATE_FILE / STATE_FILE_URL, DATA_BUNDLE / DATA_BUNDLE_URL, SKIP_DATA=1.
+# booth-intel), STATE_FILE / STATE_FILE_URL, FORCE_IMPORT=1 (import unchanged files again),
+# DATA_BUNDLE / DATA_BUNDLE_URL, SKIP_DATA=1.
 set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/booth-intel}"
@@ -44,6 +48,10 @@ run() {   # as the owner of the deployment, in APP_DIR, with PYTHONPATH set
 }
 mkdir -p "$(dirname "$LOG")"
 
+SELF="$APP_DIR/scripts/deploy/update_existing.sh"
+if [ "${CODE_UPDATED:-0}" = 1 ]; then
+    log "1-2/7 backup and code already done — continuing with the updated script"
+else
 # ------------------------------------------------------------------ 1. backup
 log "1/7 database backup"
 url="$(grep -E '^DATABASE_URL=' "$APP_DIR/.env" 2>/dev/null | cut -d= -f2- | sed 's#+psycopg##' || true)"
@@ -64,9 +72,16 @@ fi
 # ------------------------------------------------------------------ 2. code
 log "2/7 code -> $BRANCH"
 cd "$APP_DIR"
+before="$(sha256sum "$SELF" 2>/dev/null | cut -d' ' -f1 || true)"
 run "git stash push --include-untracked -m 'before update $(date -Is)' >/dev/null 2>&1 || true"
 run "git fetch --quiet origin '$BRANCH' && git checkout --quiet '$BRANCH' && git reset --quiet --hard 'origin/$BRANCH'"
 run "git log --oneline -1"
+# the pull may have brought a newer version of this script: run the rest with that one
+if [ "$(sha256sum "$SELF" | cut -d' ' -f1)" != "$before" ]; then
+    log "this script was updated by the pull — restarting it"
+    CODE_UPDATED=1 exec bash "$SELF"
+fi
+fi
 
 # ------------------------------------------------------------------ 3. packages
 log "3/7 Python packages"
@@ -81,19 +96,43 @@ if [ -n "${STATE_FILE_URL:-}" ] && [ -z "$STATE_FILE" ]; then
     STATE_FILE=/root/up_data.sqlite3.gz
     [ -s "$STATE_FILE" ] || curl -fL --retry 3 -o "$STATE_FILE" "$STATE_FILE_URL" || die "download failed"
 fi
+# The state files to import: the one given, or every export committed under deploy/
+# (they arrive with `git pull`, so publishing new data is just a commit).
+if [ -n "$STATE_FILE" ]; then
+    STATE_FILES=("$STATE_FILE")
+else
+    shopt -s nullglob
+    STATE_FILES=("$APP_DIR"/deploy/*.sqlite3.gz)
+    shopt -u nullglob
+fi
+
+import_file() {   # import one export unless this exact file was imported already
+    local f="$1" name marker sum staged
+    [ -f "$f" ] || die "state file not found: $f"
+    gzip -t "$f" 2>/dev/null || die "$f is not gzip (a web page instead of the file?)"
+    name="$(basename "$f")"
+    marker="$APP_DIR/data/processed/.imported-$name.sha256"
+    sum="$(sha256sum "$f" | cut -d' ' -f1)"
+    if [ "${FORCE_IMPORT:-0}" != 1 ] && [ -f "$marker" ] && [ "$(cat "$marker")" = "$sum" ]; then
+        echo "  $name: already imported (unchanged) — skipped; FORCE_IMPORT=1 to import again"
+        return
+    fi
+    # /root is not readable by the app user: import from a copy inside the app directory
+    staged="$APP_DIR/data/processed/$name"
+    [ "$(realpath "$f")" = "$(realpath -m "$staged")" ] || cp "$f" "$staged"
+    chown "$OWNER:" "$staged"
+    echo "  $name: importing (only the states in the file are added or replaced)"
+    run ".venv/bin/python -m app import-state --file '$staged'" 2>&1 | tee -a "$LOG" \
+        || die "import of $name failed — nothing was changed (one transaction); see $LOG"
+    echo "$sum" > "$marker"
+    [ "$staged" = "$f" ] || rm -f "$staged"
+}
 
 if [ "${SKIP_DATA:-0}" = 1 ]; then
     log "SKIP_DATA=1: code updated, no data loaded"
-elif [ -n "$STATE_FILE" ]; then
-    log "5-6/7 importing $STATE_FILE (only the states in the file are added or replaced)"
-    [ -f "$STATE_FILE" ] || die "STATE_FILE not found: $STATE_FILE"
-    case "$STATE_FILE" in *.gz) gzip -t "$STATE_FILE" || die "$STATE_FILE is not gzip (a web page instead of the file?)";; esac
-    # /root is not readable by the app user: import from a copy inside the app directory
-    staged="$APP_DIR/data/processed/$(basename "$STATE_FILE")"
-    [ "$(realpath "$STATE_FILE")" = "$(realpath -m "$staged")" ] || cp "$STATE_FILE" "$staged"
-    chown "$OWNER:" "$staged"
-    run ".venv/bin/python -m app import-state --file '$staged'" 2>&1 | tee -a "$LOG" \
-        || die "import failed — nothing was changed (it runs in one transaction); see $LOG"
+elif [ "${#STATE_FILES[@]}" -gt 0 ]; then
+    log "5-6/7 importing ${#STATE_FILES[@]} state file(s)"
+    for f in "${STATE_FILES[@]}"; do import_file "$f"; done
 else
     # -------------------------------------------------------------- 5. cached sources
     if [ -n "${DATA_BUNDLE_URL:-}" ] && [ -z "$DATA_BUNDLE" ]; then
