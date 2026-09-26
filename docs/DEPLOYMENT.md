@@ -24,12 +24,14 @@ the workstation:
 python -m app export-state --state "Uttar Pradesh" --from "sqlite:///data/uk_election.sqlite3" --out up_data.sqlite3.gz
 ```
 
-and sends `up_data.sqlite3.gz` (by email, a drive link or scp). On the server:
+and commits it as `deploy/up_data.sqlite3.gz` (it is in the repository, so the server
+gets it with `git pull`). On the server:
 
 ```bash
 cd /opt/booth-intel                      # the deployed git checkout
-git fetch origin && git checkout main    # or the pull-request branch, until it is merged
-sudo APP_DIR=/opt/booth-intel BRANCH=main STATE_FILE=/root/up_data.sqlite3.gz \
+git fetch origin && git checkout main && git pull
+sudo APP_DIR=/opt/booth-intel BRANCH=main \
+     STATE_FILE=/opt/booth-intel/deploy/up_data.sqlite3.gz \
      bash scripts/deploy/update_existing.sh
 ```
 
