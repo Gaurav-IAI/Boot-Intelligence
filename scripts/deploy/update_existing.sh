@@ -7,18 +7,22 @@
 #   2. code: git fetch + checkout of $BRANCH (local changes on the server are stashed)
 #   3. Python packages (adds xlrd, openpyxl)
 #   4. schema: new nullable columns are added automatically (additive migrations)
-#   5. optional: unpack data/raw from the data bundle, so step 6 parses cached files
-#      instead of downloading them (the bundle's database is NOT used)
-#   6. data: UP + Telangana constituencies (ECI), UP Form 20 results, UP polling stations
+#   5-6. data, one of:
+#      STATE_FILE (recommended): import a state export (up_data.sqlite3.gz, ~35 MB, made with
+#        `python -m app export-state`) — only that state's rows are added/replaced; no
+#        downloads, no parsing, a few minutes
+#      or load from the sources: UP + Telangana constituencies (ECI), UP Form 20 results, UP
+#        polling stations — optionally parsing data/raw from DATA_BUNDLE instead of downloading
 #   7. restart the dashboard service
 #
 # Usage (as root, or as the user owning $APP_DIR with sudo for the restart):
-#   sudo APP_DIR=/opt/booth-intel BRANCH=main bash scripts/deploy/update_existing.sh
+#   sudo STATE_FILE=/root/up_data.sqlite3.gz bash scripts/deploy/update_existing.sh
+#   sudo STATE_FILE_URL='https://...direct-link...' bash scripts/deploy/update_existing.sh
 #   sudo DATA_BUNDLE=/root/booth-data.tar.gz bash scripts/deploy/update_existing.sh
-#   sudo DATA_BUNDLE_URL='https://...direct-link...' bash scripts/deploy/update_existing.sh
+#   sudo APP_DIR=/opt/booth-intel BRANCH=main bash scripts/deploy/update_existing.sh
 #
 # Options: APP_DIR (default /opt/booth-intel), BRANCH (default main), SERVICE (default
-# booth-intel), DATA_BUNDLE / DATA_BUNDLE_URL (optional), SKIP_DATA=1 (code only).
+# booth-intel), STATE_FILE / STATE_FILE_URL, DATA_BUNDLE / DATA_BUNDLE_URL, SKIP_DATA=1.
 set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/booth-intel}"
@@ -72,8 +76,24 @@ run ".venv/bin/pip install --quiet -r requirements.txt"
 log "4/7 schema (additive, nullable columns only)"
 run ".venv/bin/python -c 'from app.database.session import init_db; print(\"backend:\", init_db())'"
 
+STATE_FILE="${STATE_FILE:-}"
+if [ -n "${STATE_FILE_URL:-}" ] && [ -z "$STATE_FILE" ]; then
+    STATE_FILE=/root/up_data.sqlite3.gz
+    [ -s "$STATE_FILE" ] || curl -fL --retry 3 -o "$STATE_FILE" "$STATE_FILE_URL" || die "download failed"
+fi
+
 if [ "${SKIP_DATA:-0}" = 1 ]; then
     log "SKIP_DATA=1: code updated, no data loaded"
+elif [ -n "$STATE_FILE" ]; then
+    log "5-6/7 importing $STATE_FILE (only the states in the file are added or replaced)"
+    [ -f "$STATE_FILE" ] || die "STATE_FILE not found: $STATE_FILE"
+    case "$STATE_FILE" in *.gz) gzip -t "$STATE_FILE" || die "$STATE_FILE is not gzip (a web page instead of the file?)";; esac
+    # /root is not readable by the app user: import from a copy inside the app directory
+    staged="$APP_DIR/data/processed/$(basename "$STATE_FILE")"
+    [ "$(realpath "$STATE_FILE")" = "$(realpath -m "$staged")" ] || cp "$STATE_FILE" "$staged"
+    chown "$OWNER:" "$staged"
+    run ".venv/bin/python -m app import-state --file '$staged'" 2>&1 | tee -a "$LOG" \
+        || die "import failed — nothing was changed (it runs in one transaction); see $LOG"
 else
     # -------------------------------------------------------------- 5. cached sources
     if [ -n "${DATA_BUNDLE_URL:-}" ] && [ -z "$DATA_BUNDLE" ]; then

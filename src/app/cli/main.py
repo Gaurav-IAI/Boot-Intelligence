@@ -522,6 +522,54 @@ def cmd_migrate_db(
     console.print(f"[bold green]{report.total:,} rows copied[/]")
 
 
+@app.command("export-state")
+def cmd_export_state(
+    state: list[str] = typer.Option(..., "--state", help="state to export; repeat for several"),
+    out: Path = typer.Option(Path("up_data.sqlite3.gz"), "--out", help=".sqlite3, or .sqlite3.gz to compress"),
+    source: str = typer.Option(None, "--from", help="source database URL (default: the active database)"),
+):
+    """Write one state's data (constituencies, stations, results, load records) to a small file for
+    another deployment. Contact records are never exported."""
+    from ..services.state_export import export_states
+
+    names = [n for s in state for n in _state_list(s)]
+    if source is None:
+        get_session()                      # resolve PostgreSQL or the SQLite fallback
+        from ..database.session import get_engine
+        source = str(get_engine().url.render_as_string(hide_password=False))
+    try:
+        report = export_states(source, out, names)
+    except LookupError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1)
+    for name, n in report.rows.items():
+        console.print(f"  {name:<24} {n:>10,}")
+    console.print(f"[bold green]{', '.join(report.states)}: {report.total:,} rows -> {out} "
+                  f"({out.stat().st_size / 1e6:,.1f} MB)[/]")
+
+
+@app.command("import-state")
+def cmd_import_state(
+    file: Path = typer.Option(..., "--file", help="file written by export-state (.sqlite3 or .sqlite3.gz)"),
+    target: str = typer.Option(None, "--to", help="target database URL (default: the active database)"),
+):
+    """Add the state(s) in an export file to this database. Existing rows of those states are replaced;
+    every other state's data is left as it is. Runs in one transaction."""
+    from ..services.state_export import import_states
+
+    if not file.exists():
+        console.print(f"[red]{file} not found[/]")
+        raise typer.Exit(1)
+    if target is None:
+        init_db()
+        from ..database.session import get_engine
+        target = str(get_engine().url.render_as_string(hide_password=False))
+    report = import_states(file, target)
+    for name, n in report.rows.items():
+        console.print(f"  {name:<24} {n:>10,}")
+    console.print(f"[bold green]imported {', '.join(report.states)}: {report.total:,} rows[/]")
+
+
 @app.command("serve")
 def cmd_serve(
     host: str = typer.Option("127.0.0.1", "--host"),

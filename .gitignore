@@ -15,3 +15,4 @@ node_modules/
 *.tar.gz
 data/_bundle/
 data/*.bak
+*.sqlite3.gz

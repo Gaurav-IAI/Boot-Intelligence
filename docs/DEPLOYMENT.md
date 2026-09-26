@@ -17,11 +17,19 @@ run `setup_server.sh`**. It is meant for fresh servers and would also reconfigur
 the firewall and PostgreSQL. Use the update script instead. It changes only the code
 and adds data:
 
+**Recommended: import the Uttar Pradesh export (~35 MB).** The data owner exports UP on
+the workstation:
+
+```powershell
+python -m app export-state --state "Uttar Pradesh" --from "sqlite:///data/uk_election.sqlite3" --out up_data.sqlite3.gz
+```
+
+and sends `up_data.sqlite3.gz` (by email, a drive link or scp). On the server:
+
 ```bash
 cd /opt/booth-intel                      # the deployed git checkout
-git fetch origin && git checkout origin/main -- scripts/deploy/update_existing.sh
-sudo APP_DIR=/opt/booth-intel BRANCH=main \
-     DATA_BUNDLE_URL='<direct link to booth-data.tar.gz>' \
+git fetch origin && git checkout main    # or the pull-request branch, until it is merged
+sudo APP_DIR=/opt/booth-intel BRANCH=main STATE_FILE=/root/up_data.sqlite3.gz \
      bash scripts/deploy/update_existing.sh
 ```
 
@@ -29,11 +37,17 @@ In order, it:
 1. backs up the database (`/var/backups/booth-intel/before-update-*`);
 2. checks out `BRANCH` and installs the two new Python packages;
 3. adds the new database columns (automatic, nullable, nothing removed);
-4. unpacks `data/raw/` from the bundle, if one is given, so nothing is downloaded again
-   (the bundle's database is **not** used; existing data is kept);
-5. loads the Uttar Pradesh and Telangana constituencies (ECI), UP Form 20 results and UP
-   polling stations;
-6. restarts the `booth-intel` service.
+4. imports the file with `python -m app import-state`. Only Uttar Pradesh's rows are
+   added (or, on a repeat, replaced). Uttarakhand and everything else stays as it is.
+   There are no downloads and no parsing. It runs in one transaction: it either fully
+   succeeds or changes nothing. Tested against PostgreSQL: 461,498 rows in about 40
+   seconds;
+5. restarts the `booth-intel` service.
+
+**Alternative: load UP from the official sources on the server.** Leave out `STATE_FILE`.
+The script then discovers the UP and Telangana constituencies (ECI) and loads the UP
+Form 20 results and polling stations itself. That takes several hours, or about an hour
+with `DATA_BUNDLE=` (the 2.4 GB source files, parsed instead of downloaded).
 
 Notes:
 - Use `BRANCH=feature/up-results-stations-deploy` if the pull request isn't merged yet.
