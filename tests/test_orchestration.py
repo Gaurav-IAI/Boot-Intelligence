@@ -67,15 +67,16 @@ def _populate(db, *, parts=(6, 7, 8, 9, 10), form20_note=True):
 
 
 NETWORK_STAGES = [s for s in pl.PIPELINE_STAGES if s not in ("verify", "review")]
+UK_ONLY = ("Uttarakhand",)        # the fixture holds one state; multi-state planning is tested separately
 
 
 def _plans(db, cfg=None):
-    return {p.name: p for p in pl.plan_pipeline(db, cfg or pl.PipelineConfig())}
+    return {p.name: p for p in pl.plan_pipeline(db, cfg or pl.PipelineConfig(states=UK_ONLY))}
 
 
 @pytest.fixture
 def cfg(tmp_path):
-    return pl.PipelineConfig(review_dir=tmp_path / "review")
+    return pl.PipelineConfig(review_dir=tmp_path / "review", states=UK_ONLY)
 
 
 def test_empty_database_plans_every_stage(db):
@@ -213,3 +214,43 @@ def test_refresh_runs_stages_even_when_data_is_complete(db, cfg):
     hierarchy = next(s for s in report.steps if s.name == "hierarchy")
     assert not hierarchy.ok and "NoNetwork" in hierarchy.detail
     assert db.query(ElectionResult).count() == 1       # failed refresh deleted nothing
+
+
+# --- several states -------------------------------------------------------------
+def _add_telangana(db):
+    """A second state whose AC numbers collide with Uttarakhand's (both have an AC 19)."""
+    state = repo.upsert_state(db, state_code="S29", state_name="Telangana", state_name_local=None,
+                              state_type="ST", external_id=28, source="t", source_url="u")
+    d = repo.upsert_district(db, state=state, district_code="S2901", district_number=1,
+                             district_name="Adilabad", district_name_local=None, source="t", source_url="u")
+    acs = [repo.upsert_ac(db, district=d, ac_number=n, ac_name=f"TS {n}", source="t") for n in (19, 20)]
+    db.commit()
+    return acs
+
+
+def test_every_registry_state_is_planned_for_discovery(db):
+    reason = _plans(db, pl.PipelineConfig())["hierarchy"].reason
+    assert all(name in reason for name in ("Uttarakhand", "Uttar Pradesh", "Telangana"))
+
+
+def test_a_missing_state_plans_only_the_hierarchy(db):
+    _populate(db)
+    _add_telangana(db)
+    plans = _plans(db, pl.PipelineConfig())
+    assert plans["hierarchy"].needed and plans["hierarchy"].reason.startswith("Uttar Pradesh:")
+    assert not any(plans[s].needed for s in NETWORK_STAGES if s != "hierarchy")
+
+
+def test_booth_stages_never_target_another_states_constituencies(db, cfg):
+    _populate(db)
+    ts19, _ = _add_telangana(db)
+    two = pl.PipelineConfig(states=("Uttarakhand", "Telangana"), review_dir=cfg.review_dir)
+    plans = _plans(db, two)
+    # Telangana AC 20 has no polling stations, but CEO Uttarakhand is never asked for it
+    assert not plans["hierarchy"].needed and not plans["parts"].needed
+    assert not plans["ps-list"].needed and not plans["form20"].needed
+    assert "Telangana: 1 districts, 2 constituencies" in plans["hierarchy"].reason
+    report = pl.PipelineReport()
+    assert pl.run_pipeline(db, report, two, http_factory=offline) is None
+    linked = db.query(ElectionResult).one().ac_id
+    assert linked is not None and linked != ts19.id        # Form 20 joins Uttarakhand's AC 19

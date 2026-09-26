@@ -12,7 +12,8 @@ from dataclasses import dataclass, field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ..database.models import Elector, ElectionResult, ElectoralRoll, PollingStation
+from ..database.models import Election, Elector, ElectionResult, ElectoralRoll, PollingStation
+from ..states import BOOTH_STATE
 
 # Validation notes name the record a duplicate repeats: "same name+relative+age as
 # serial 332" or "duplicate serial (first seen at row 637)" — 637 is a serial (F-8).
@@ -67,7 +68,9 @@ def link_results(db: Session) -> tuple[int, int]:
 
     linked = unlinked = 0
     cache: dict[int | None, object] = {}
-    for r in db.query(ElectionResult).filter(ElectionResult.ac_id.is_(None)).all():
+    # form20_ac resolves numbers within the booth state, so only its results are linked here.
+    for r in (db.query(ElectionResult).join(Election, ElectionResult.election_id == Election.id)
+              .filter(ElectionResult.ac_id.is_(None), Election.state == BOOTH_STATE).all()):
         if r.ac_number not in cache:
             cache[r.ac_number] = form20_ac(db, r.ac_number) if r.ac_number is not None else None
         ac = cache[r.ac_number]

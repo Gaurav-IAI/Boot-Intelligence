@@ -19,14 +19,33 @@
   {% endif %}
   <div class="cards{{ ' mt' if not r.verified }}">
     {{ ui.kpi(r.total_votes|n, 'Total votes') }}
-    {{ ui.kpi(m.leader_votes|n if m else 'Withheld', 'Top vote', 'candidate name not attributed' if m else 'requires review', not m) }}
-    {{ ui.kpi(m.runner_up_votes|n if m else 'Withheld', 'Second vote', 'candidate name not attributed' if m else 'requires review', not m) }}
+    {% set who = (r.leader.name ~ ((' (' ~ r.leader.party ~ ')') if r.leader.party else '')) if r.leader else 'candidate name not attributed' %}
+    {% set who2 = (r.runner_up.name ~ ((' (' ~ r.runner_up.party ~ ')') if r.runner_up.party else '')) if r.runner_up else 'candidate name not attributed' %}
+    {{ ui.kpi(m.leader_votes|n if m else 'Withheld', 'Top vote', who if m else 'requires review', not m) }}
+    {{ ui.kpi(m.runner_up_votes|n if m else 'Withheld', 'Second vote', who2 if m else 'requires review', not m) }}
     {{ ui.kpi(m.margin|n if m else 'Withheld', 'Historical vote margin', 'Top two vote columns are tied — a valid zero-margin result' if m and m.margin == 0 else ((m.margin_pct|pct ~ ' of valid votes') if m and m.margin_pct is not none else ('requires review' if not m else None)), not m) }}
   </div>
   {% if r.verified %}
   <div class="mt">{{ ui.chip('good', 'Vote-sum verified') }} <span class="muted small">{{ r.reliability_note }}</span></div>
   {% endif %}
 </section>
+
+{% if r.named_columns %}
+<section>
+  <div class="sh"><h2>Votes by candidate</h2></div>
+  <div class="tablecard">
+  <table>
+    <thead><tr><th>Candidate (as printed)</th><th>Party</th><th class="num">Votes</th></tr></thead>
+    <tbody>
+    {% for c, v in r.named_columns|sort(attribute='1', reverse=true) %}
+    <tr><td>{{ c.name }}</td><td>{{ c.party or '—' }}</td><td class="num">{{ v|n }}</td></tr>
+    {% endfor %}
+    {% if r.nota_votes is not none %}<tr><td class="muted">NOTA</td><td></td><td class="num">{{ r.nota_votes|n }}</td></tr>{% endif %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endif %}
 
 {% if ac %}<div class="actions"><a class="btn" href="/ac/{{ ac.id }}/performance">← All {{ r.year }} results</a></div>{% endif %}
 
@@ -35,11 +54,12 @@
     <summary>View data provenance</summary>
     <div class="inner"><dl class="kv">
       <dt>Source</dt><dd>{{ source_label(r.source) }}</dd>
-      <dt>Document</dt><dd><code>{{ r.source_file }}</code> · page {{ r.source_page }}</dd>
+      <dt>Document</dt><dd><code>{{ r.source_file }}</code> · {{ 'row' if (r.source_file or '').endswith('.xls') else 'page' }} {{ r.source_page }}</dd>
       <dt>Source URL</dt><dd><code>{{ r.source_url }}</code></dd>
       <dt>Parser version</dt><dd><code>{{ r.parser_version }}</code></dd>
       <dt>Name decoding confidence</dt><dd>{{ '%.0f'|format((r.confidence or 0) * 100) }}%</dd>
       <dt>Total valid / rejected / tendered</dt><dd>{{ r.total_valid_votes|n }} / {{ r.rejected_votes|n }} / {{ r.tendered_votes|n }}</dd>
+      {% if r.nota_votes is not none %}<dt>NOTA</dt><dd>{{ r.nota_votes|n }}</dd>{% endif %}
       {% if r.columns %}<dt>Vote columns (printed order)</dt><dd><code>{{ r.columns|join(', ') }}</code></dd>{% endif %}
     </dl></div>
   </details>

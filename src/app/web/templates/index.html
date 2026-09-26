@@ -3,35 +3,62 @@
 {% block title %}Dashboard{% endblock %}
 {% block body %}
 <div class="eyebrow">From official election documents to booth-level intelligence</div>
-<h1 class="xl">UTTARAKHAND</h1>
+<h1 class="xl">{{ (current_state.state_name if current_state else "No state loaded")|upper }}</h1>
 <div class="h1sub">Election Data Intelligence</div>
 <p class="lede">Booth-level election data, historical results, mapping and data-quality intelligence — from official sources.</p>
+{% set sname = current_state.state_name if current_state else 'this state' %}
+{% if not s.booth_sources and (s.results or s.stations_current) %}
+<div class="panel mt"><p><strong>Partial booth-level data.</strong> Districts and assembly constituencies for
+  {{ sname }} come from the Election Commission of India{% if s.results %}, polling-station-wise results from the
+  CEO {{ sname }} Form 20 sheets{% endif %}{% if s.stations_current %}, and current polling stations from district
+  polling-station lists for {{ s.acs_with_stations }} of {{ s.acs_current }} constituencies{% endif %}.
+  {% if s.stations_current %}Electoral rolls{% else %}Current polling stations, electoral rolls{% endif %} and booth
+  mapping are not yet available for this state.</p></div>
+{% elif not s.booth_sources %}
+<div class="panel mt"><p><strong>Constituency list only.</strong> Districts and assembly constituencies for
+  {{ sname }} come from the Election Commission of India. Polling
+  stations, electoral rolls, Form 20 results and booth mapping are not yet loaded for this state.</p></div>
+{% endif %}
 
 <div class="bigstats">
   <div class="bs"><div class="v">{{ s.districts }}</div><div class="l">Districts</div></div>
   <div class="bs"><div class="v">{{ s.acs_current }}</div><div class="l">Assembly Constituencies</div></div>
+  {% if s.booth_sources or not s.results %}
   <div class="bs"><div class="v">{{ s.stations_current|n }}</div><div class="l">Current Polling Stations</div>
     <div class="s">current list ingested for {{ s.acs_with_stations }} of {{ s.acs_current }} constituencies</div></div>
+  {% else %}
+  <div class="bs"><div class="v">{{ s.results|n }}</div><div class="l">Historical Booth Results</div>
+    <div class="s">Form 20 rows for {{ result_acs|length }} of {{ s.acs_current }} constituencies; {{ rq.verified|n }} vote-sum verified</div></div>
+  {% endif %}
 </div>
 
 <div class="flow" aria-label="How the data is built">
-  <div class="step"><b>Official data</b><span>ECI &amp; CEO Uttarakhand sources</span></div><div class="arrow">→</div>
+  <div class="step"><b>Official data</b><span>ECI{% if s.booth_sources or s.results %} &amp; CEO {{ current_state.state_name }}{% endif %} sources</span></div><div class="arrow">→</div>
   <div class="step"><b>Structured</b><span>State → district → AC → booth</span></div><div class="arrow">→</div>
+  {% if s.booth_sources or not s.results %}
   <div class="step"><b>Validated</b><span>{{ s.electors|n }} records checked</span></div><div class="arrow">→</div>
   <div class="step"><b>Mapped</b><span>{{ mapping.values()|sum }} village-level mapping relationships</span></div><div class="arrow">→</div>
+  {% else %}
+  <div class="step"><b>Validated</b><span>{{ rq.verified|n }} of {{ rq.rows|n }} result rows reconcile with the printed totals</span></div><div class="arrow">→</div>
+  {% endif %}
   <div class="step end"><b>Booth-level view</b><span>constituency and booth pages</span></div>
 </div>
 
 {% set years = (result_acs|map(attribute='result_years')|sum(start=[]))|unique|sort|join(', ') %}
 <section>
-  <div class="sh"><h2>What this POC contains</h2></div>
+  <div class="sh"><h2>What this contains</h2></div>
   <div class="tablecard">
   <table>
     <thead><tr><th>Data</th><th>Coverage in this POC</th><th>Status</th></tr></thead>
     <tbody>
       <tr><td><strong>Current polling stations</strong> {{ ui.ctx('cur', 'Current 2026') }}</td>
+        {% if s.stations_current %}
         <td>{{ s.stations_current|n }} polling stations across {{ s.acs_with_stations }} of {{ s.acs_current }} constituencies</td>
         <td>{{ ui.chip('good', 'Available') }}</td></tr>
+        {% else %}
+        <td>Not yet ingested for this state</td>
+        <td>{{ ui.chip('plain', 'Not available') }}</td></tr>
+        {% endif %}
       <tr><td><strong>Current voter roll</strong> {{ ui.ctx('cur', 'Current 2026') }}</td>
         <td>Not available from the current public source</td>
         <td>{{ ui.chip('plain', 'Not available') }}</td></tr>
@@ -55,9 +82,11 @@
     </tbody>
   </table>
   </div>
+  {% if s.booth_sources %}
   <div class="panel mt"><p><strong>Known limitations.</strong> Current 2026 voter-level roll data is not available from the
     current public source. Historical 2003 roll data and historical Form 20 results are available for the demonstrated
     datasets. Historical-to-current booth mapping is evidence-based and incomplete.</p></div>
+  {% endif %}
 </section>
 
 <section>

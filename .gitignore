@@ -11,3 +11,7 @@ research/portal/
 research/network/*.png
 .DS_Store
 node_modules/
+# deployment bundles made by scripts/pack_data.ps1
+*.tar.gz
+data/_bundle/
+data/*.bak

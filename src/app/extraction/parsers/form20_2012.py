@@ -73,6 +73,7 @@ class BoothResult:
     source_page: int
     confidence: float
     rejected_votes: int | None = None
+    nota_votes: int | None = None
 
 
 @dataclass
@@ -97,9 +98,19 @@ class Form20Result:
 
     @property
     def serial_coverage(self) -> float:
-        if not self.booths:
-            return 0.0
-        return len(self.booths) / max(b.part_number for b in self.booths)
+        highest = max((b.part_number for b in self.booths), default=0)
+        return len(self.booths) / highest if highest > 0 else 0.0
+
+    @property
+    def distinct_share(self) -> float:
+        """Distinct booths per row. An auxiliary station keeps its base number with its label
+        ("[12A] ...") in the name, so it counts as its own booth; a table whose 'booth
+        numbers' repeat heavily (a candidate-by-round table) is not a booth sheet, even
+        when its arithmetic happens to reconcile."""
+        def key(b: BoothResult) -> tuple:
+            m = re.match(r"\[(\w+)\]", b.polling_station_name or "")
+            return b.part_number, m.group(1) if m else ""
+        return len({key(b) for b in self.booths}) / len(self.booths) if self.booths else 0.0
 
 
 def _visual_words(page: pymupdf.Page) -> list[Word]:

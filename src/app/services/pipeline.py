@@ -33,11 +33,11 @@ from ..sources.ceo_uttarakhand.client import (
 )
 from ..sources.eci_api.client import SOURCE as ECI_SOURCE
 from ..sources.eci_api.client import EciApiClient
+from ..states import BOOTH_STATE, STATE_NAMES, booth_state_id
 from .validation import normalize_age, normalize_gender, validate_rows
 
 log = logging.getLogger(__name__)
 
-STATE_NAME = "Uttarakhand"
 EDITION_CURRENT = "SIR-2026"
 EDITION_2003 = "ROLL-2003"
 DELIM_CURRENT = "current"
@@ -66,18 +66,18 @@ class PipelineReport:
 # Discovery (current delimitation, from the ECI gateway)
 # --------------------------------------------------------------------------
 def discover_hierarchy(db: Session, http: HttpClient, report: PipelineReport,
-                       *, district_name: str | None = None,
+                       *, state_name: str = BOOTH_STATE, district_name: str | None = None,
                        limit_acs: int | None = None) -> dict:
     eci = EciApiClient(http)
 
-    state_ref = eci.find_state(STATE_NAME)
+    state_ref = eci.find_state(state_name)
     state = repo.upsert_state(
         db, state_code=state_ref.state_code, state_name=state_ref.state_name,
         state_name_local=state_ref.state_name_local, state_type=state_ref.state_type,
         external_id=state_ref.external_id, source=ECI_SOURCE,
         source_url=eci.states_url())
     repo.record_fetch(db, source=ECI_SOURCE, url=eci.states_url(), ok=True,
-                      note=f"resolved {STATE_NAME} -> {state_ref.state_code}")
+                      note=f"resolved {state_name} -> {state_ref.state_code}")
     report.add("discover-state", True,
                f"{state_ref.state_name} = {state_ref.state_code} "
                f"(discovered dynamically, not hard-coded)", 1)
@@ -303,7 +303,9 @@ def ingest_legacy_rolls(db: Session, http: HttpClient, report: PipelineReport,
     from ..database.models import District, State
 
     client = LegacyRoll2003Client(http)
-    st = db.query(State).one()
+    st = db.query(State).filter(State.state_name == BOOTH_STATE).order_by(State.id).first()
+    if st is None:
+        raise LookupError(f"{BOOTH_STATE} not yet discovered — run the hierarchy stage first")
     districts_2003 = client.list_districts()
     match = next((d for d in districts_2003 if d.name.strip() == district_name_hi.strip()), None)
     if match is None:
@@ -321,7 +323,7 @@ def ingest_legacy_rolls(db: Session, http: HttpClient, report: PipelineReport,
     # The 2003 district list is its own delimitation; attach it to the matching
     # current district row where the name agrees, else create a 2003 district.
     district = db.query(District).filter(
-        District.district_name_local == match.name).one_or_none()
+        District.state_id == st.id, District.district_name_local == match.name).one_or_none()
     if district is None:
         district = repo.upsert_district(
             db, state=st, district_code=f"UK2003-{match.number}",
@@ -514,7 +516,7 @@ def ingest_part_mapping(db: Session, http: HttpClient, report: PipelineReport,
                     to_ac_name=m.ac2025_name, to_part_number=m.part2025_number,
                     to_part_name=m.part2025_name, area_name=m.village,
                     mapping_method="official_ceo_uk_village_mapping",
-                    confidence=0.95, source=SOURCE_LEGACY_2003,
+                    confidence=0.95, source=SOURCE_LEGACY_2003, state_id=booth_state_id(db),
                     source_url=f"{client.__class__.__name__}/village-details")
                 stored += 1
         # Record the attempt so `serve` does not re-query a part the source has no mapping for.
@@ -597,7 +599,7 @@ def ingest_form20(db: Session, http: HttpClient, report: PipelineReport | None,
                        note_status="blocked:layout")
 
     election = repo.upsert_election(db, election_year=year, election_type="VIDHAN_SABHA",
-                                    state=STATE_NAME, source_url=entry.url)
+                                    state=BOOTH_STATE, source_url=entry.url)
     ac_row = form20_ac(db, ac_number)
     rows = [dict(
         ac_id=ac_row.id if ac_row else None,
@@ -631,6 +633,7 @@ class PipelineConfig:
     form20_years: tuple[int, ...] = (2012,)   # 2017/2022 are attempted but blocked (corrupt / scan)
     station_acs: tuple[int, ...] | None = None  # current ACs to load polling stations for (None = all)
     form20_acs: tuple[int, ...] | None = None   # current ACs to load Form 20 results for (None = all)
+    states: tuple[str, ...] = STATE_NAMES     # states whose districts and ACs are discovered from ECI
     all_districts: bool = True                # discover every district's ACs
     include_mapping: bool = True
     include_form20: bool = True
@@ -653,9 +656,18 @@ PIPELINE_STAGES = ("hierarchy", "parts", "ps-list", "rolls", "mapping", "ps-list
                    "form20", "verify", "review")
 
 
+def _booth_acs(db: Session):
+    """Constituencies of the state with booth-level sources. AC numbers repeat across
+    states, so every booth-level stage looks constituencies up through this query."""
+    from ..database.models import AssemblyConstituency as AC
+    from ..database.models import District
+    return (db.query(AC).join(District, AC.district_id == District.id)
+            .filter(District.state_id == booth_state_id(db)))
+
+
 def _target_acs(db: Session, numbers: tuple[int, ...] | None) -> list:
     from ..database.models import AssemblyConstituency as AC
-    q = db.query(AC).filter(AC.delimitation == DELIM_CURRENT)
+    q = _booth_acs(db).filter(AC.delimitation == DELIM_CURRENT)
     if numbers:
         q = q.filter(AC.ac_number.in_(numbers))
     return q.order_by(AC.ac_number).all()
@@ -668,19 +680,45 @@ def _form20_counts(db: Session, year: int, ac_number: int) -> tuple[int, int]:
     return (db.query(func.count(ElectionResult.id), func.count(ElectionResult.candidate_votes_json))
             .join(Election, ElectionResult.election_id == Election.id)
             .filter(Election.election_year == year, Election.election_type == "VIDHAN_SABHA",
-                    ElectionResult.ac_number == ac_number).one())
+                    Election.state == BOOTH_STATE, ElectionResult.ac_number == ac_number).one())
 
 
 def _current_ac(db: Session, ac_number: int):
     from ..database.models import AssemblyConstituency as AC
-    return (db.query(AC).filter(AC.ac_number == ac_number, AC.delimitation == DELIM_CURRENT)
+    return (_booth_acs(db).filter(AC.ac_number == ac_number, AC.delimitation == DELIM_CURRENT)
             .order_by(AC.id).first())
 
 
 def _legacy_ac(db: Session, ac_name_hi: str):
     from ..database.models import AssemblyConstituency as AC
-    return (db.query(AC).filter(AC.delimitation == DELIM_2003, AC.ac_name == ac_name_hi.strip())
+    return (_booth_acs(db).filter(AC.delimitation == DELIM_2003, AC.ac_name == ac_name_hi.strip())
             .order_by(AC.id).first())
+
+
+def hierarchy_gaps(db: Session, cfg: PipelineConfig) -> dict[str, str]:
+    """Configured states whose ECI hierarchy is missing or incomplete, with the reason."""
+    from ..database.models import AssemblyConstituency as AC
+    from ..database.models import District, State
+
+    gaps: dict[str, str] = {}
+    for name in cfg.states:
+        st = db.query(State).filter(State.state_name == name).first()
+        districts = [] if st is None else [
+            d for d in db.query(District).filter(District.state_id == st.id)
+            if not (d.district_code or "").startswith("UK2003-")]
+        if not districts:
+            gaps[name] = "state and districts not yet discovered"
+            continue
+        with_acs = {d for (d,) in db.query(AC.district_id)
+                    .filter(AC.delimitation == DELIM_CURRENT,
+                            AC.district_id.in_([d.id for d in districts])).distinct()}
+        booth = name == BOOTH_STATE
+        missing = sum(1 for d in districts if d.id not in with_acs)
+        if missing and (cfg.all_districts or not booth):
+            gaps[name] = f"{missing} district(s) have no constituencies yet"
+        elif booth and _current_ac(db, cfg.ac_number) is None:
+            gaps[name] = f"AC {cfg.ac_number} not yet discovered"
+    return gaps
 
 
 def plan_pipeline(db: Session, cfg: PipelineConfig) -> list[StagePlan]:
@@ -699,22 +737,20 @@ def plan_pipeline(db: Session, cfg: PipelineConfig) -> list[StagePlan]:
 
     plans: list[StagePlan] = []
 
-    # 1. state -> districts -> constituencies
-    districts = [d for d in db.query(District).all()
-                 if not (d.district_code or "").startswith("UK2003-")]
-    with_acs = {d for (d,) in db.query(AC.district_id).filter(AC.delimitation == DELIM_CURRENT).distinct()}
-    target = _current_ac(db, cfg.ac_number)
-    if db.query(State).first() is None or not districts:
-        plans.append(StagePlan("hierarchy", True, "state and districts not yet discovered"))
-    elif cfg.all_districts and any(d.id not in with_acs for d in districts):
-        missing = sum(1 for d in districts if d.id not in with_acs)
-        plans.append(StagePlan("hierarchy", True, f"{missing} district(s) have no constituencies yet"))
-    elif target is None:
-        plans.append(StagePlan("hierarchy", True, f"AC {cfg.ac_number} not yet discovered"))
+    # 1. state -> districts -> constituencies, for every configured state
+    gaps = hierarchy_gaps(db, cfg)
+    if gaps:
+        plans.append(StagePlan("hierarchy", True, "; ".join(f"{n}: {r}" for n, r in gaps.items())))
     else:
-        n_acs = db.query(func.count(AC.id)).filter(AC.delimitation == DELIM_CURRENT).scalar()
-        plans.append(StagePlan("hierarchy", False,
-                               f"{len(districts)} districts, {n_acs} constituencies stored"))
+        stored = []
+        for name in cfg.states:
+            st = db.query(State).filter(State.state_name == name).first()
+            n_d = db.query(func.count(District.id)).filter(
+                District.state_id == st.id, ~District.district_code.like("UK2003-%")).scalar()
+            n_a = (db.query(func.count(AC.id)).join(District, AC.district_id == District.id)
+                   .filter(District.state_id == st.id, AC.delimitation == DELIM_CURRENT).scalar())
+            stored.append(f"{name}: {n_d} districts, {n_a} constituencies")
+        plans.append(StagePlan("hierarchy", False, "; ".join(stored)))
 
     # 2-3. current polling stations and their PS-list enrichment, per constituency
     targets = _target_acs(db, cfg.station_acs)
@@ -886,8 +922,19 @@ def run_pipeline(db: Session, report: PipelineReport, cfg: PipelineConfig, *,
         return http
 
     def hierarchy(plan: StagePlan) -> None:
-        discover_hierarchy(db, net(), report,
-                           district_name=None if cfg.all_districts else cfg.district)
+        wanted = list(cfg.states) if refresh else list(hierarchy_gaps(db, cfg))
+        failed = []
+        for name in wanted:
+            booth = name == BOOTH_STATE
+            try:
+                discover_hierarchy(db, net(), report, state_name=name,
+                                   district_name=None if (cfg.all_districts or not booth) else cfg.district)
+            except Exception as exc:
+                db.rollback()
+                failed.append(f"{name} ({type(exc).__name__})")
+                report.warnings.append(f"hierarchy {name}: {str(exc)[:160]}")
+        if failed:
+            raise LookupError(f"discovery failed for {', '.join(failed)}")
 
     def parts(plan: StagePlan) -> None:
         acs = _target_acs(db, cfg.station_acs)
@@ -1065,7 +1112,7 @@ def form20_ac(db: Session, ac_number: int):
     AC that happens to share a number. Returns None if absent or ambiguous.
     """
     from ..database.models import AssemblyConstituency
-    rows = db.query(AssemblyConstituency).filter(
+    rows = _booth_acs(db).filter(
         AssemblyConstituency.ac_number == ac_number,
         AssemblyConstituency.delimitation == DELIM_CURRENT).all()
     return rows[0] if len(rows) == 1 else None
@@ -1087,7 +1134,8 @@ def backfill_form20_from_local(db: Session, *, year: int, ac_number: int,
     from ..database.models import Election, ElectionResult, SourceFetch
 
     election = db.scalar(select(Election).where(
-        Election.election_year == year, Election.election_type == "VIDHAN_SABHA"))
+        Election.election_year == year, Election.election_type == "VIDHAN_SABHA",
+        Election.state == BOOTH_STATE))
     if election is None:
         raise LookupError(f"no stored Vidhan Sabha {year} election — run the pipeline first")
 

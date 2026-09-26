@@ -26,6 +26,10 @@
         {{ ui.kpi(g.with_epic|n, 'EPIC', g.epic_pct|pct ~ ' of electors') }}
       </div>
       {{ ui.gender(g.male, g.female, g.other_unknown) }}
+    {% elif st.elector_count %}
+      <div style="font-size:40px;font-weight:700;line-height:1.1">{{ st.elector_count|n }} <span style="font-size:18px;color:var(--ink2)">electors</span></div>
+      <div class="muted small">As printed in the district polling-station list ({{ source_label(st.source) }}).
+        The voter roll itself is not available, so there is no gender or age breakdown.</div>
     {% else %}
       <div class="panel mt"><p><strong>Current voter roll: not available from the current public source.</strong>
         No elector counts are shown for this polling station.</p></div>

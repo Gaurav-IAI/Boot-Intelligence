@@ -23,7 +23,7 @@
       <p>Historical booth numbers can change across electoral revisions. A historical-to-current link is marked
         <strong>Verified only when supported by matching official area/building evidence</strong>. Ambiguous
         relationships remain <strong>Review Required</strong>.</p>
-      <p class="muted small">Source: CEO Uttarakhand official historical/current mapping and polling-station records.</p>
+      <p class="muted small">Source: CEO {{ current_state.state_name }} official historical/current mapping and polling-station records.</p>
     </div>
     <div class="card"><h3>Why is mapping required?</h3>
       <p>Polling-station numbers can change between electoral revisions.</p>
@@ -35,7 +35,7 @@
   <details class="prov mt">
     <summary>View methodology</summary>
     <div class="inner">
-      <p>Each row is one record of CEO Uttarakhand's official village-level mapping: a village of a 2003 electoral-roll
+      <p>Each row is one record of CEO {{ current_state.state_name }}'s official village-level mapping: a village of a 2003 electoral-roll
         part and the 2025 roll part (with its building name) that the village moved to. The 2026 polling-station list
         renumbered stations, so the 2025 part number alone proves nothing about the current part.</p>
       <p>A row is <strong>Verified</strong> only when both official signals point to the same current polling station:

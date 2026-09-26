@@ -32,6 +32,8 @@ OP_LEGACY_SERVER_CONNECT = 0x4
 LEGACY_TLS_HOSTS = {"election.uk.gov.in", "ceo.uk.gov.in"}
 
 RETRYABLE_STATUS = {408, 425, 429, 500, 502, 503, 504}
+XLS_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"      # OLE2 compound file (legacy .xls)
+XLSX_MAGIC = b"PK\x03\x04"                            # zip container (.xlsx)
 
 
 def _legacy_ssl_context() -> ssl.SSLContext:
@@ -132,13 +134,15 @@ class HttpClient:
         *,
         params: Mapping[str, Any] | None = None,
         json_body: Any = None,
+        data: Mapping[str, Any] | None = None,
         headers: Mapping[str, str] | None = None,
         expect: str | None = None,
     ) -> httpx.Response:
         """Issue a request, retrying transient failures.
 
-        `expect` may be "json" or "pdf"; the response content-type is validated
-        against it so a captcha/error HTML page is never silently stored as a PDF.
+        `expect` may be "json", "pdf" or "xls"; the response is validated against it
+        so a captcha/error HTML page is never silently stored as a document.
+        `data` sends a url-encoded form (an ASP.NET postback).
         """
         host = httpx.URL(url).host or ""
         legacy = host in LEGACY_TLS_HOSTS
@@ -149,7 +153,7 @@ class HttpClient:
             self._throttle()
             try:
                 resp = self._client(legacy).request(
-                    method, url, params=params, json=json_body,
+                    method, url, params=params, json=json_body, data=data,
                     headers={**(headers or {}), "X-Request-Id": rid},
                 )
             except Exception as exc:  # network / TLS / timeout
@@ -175,6 +179,8 @@ class HttpClient:
                 if expect == "json" and "json" not in ctype:
                     ok = False
                 elif expect == "pdf" and not resp.content.startswith(b"%PDF"):
+                    ok = False
+                elif expect == "xls" and not resp.content.startswith((XLS_MAGIC, XLSX_MAGIC)):
                     ok = False
                 if not ok:
                     log.error("rid=%s %s returned HTTP %d but content-type=%r "
@@ -212,3 +218,9 @@ class HttpClient:
 
     def get_pdf(self, url: str, **kw: Any) -> bytes:
         return self.request("GET", url, expect="pdf", **kw).content
+
+    def get_xls(self, url: str, **kw: Any) -> bytes:
+        return self.request("GET", url, expect="xls", **kw).content
+
+    def post_form(self, url: str, data: Mapping[str, Any], **kw: Any) -> str:
+        return self.request("POST", url, data=data, **kw).text

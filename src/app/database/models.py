@@ -110,6 +110,8 @@ class PollingStation(Base, TimestampMixin):
     polling_station_address: Mapped[str | None] = mapped_column(Text)
     part_name: Mapped[str | None] = mapped_column(Text)
     area_description: Mapped[str | None] = mapped_column(Text)
+    # electors as printed in the polling-station list (UP district lists print it)
+    elector_count: Mapped[int | None] = mapped_column(Integer)
     edition: Mapped[str] = mapped_column(String(32), default="SIR-2026")
     source: Mapped[str] = mapped_column(String(64))
     source_url: Mapped[str | None] = mapped_column(Text)
@@ -249,6 +251,9 @@ class ElectionResult(Base, TimestampMixin):
     # leading/second vote counts and margin. Added by an additive migration.
     candidate_votes_json: Mapped[str | None] = mapped_column(Text)
     vote_sum_matches: Mapped[bool | None] = mapped_column(Boolean)
+    # [{"name", "party"}] in the same column order, where the source prints them
+    # legibly (UP Excel sheets); NULL where names are not attributable.
+    candidates_json: Mapped[str | None] = mapped_column(Text)
     source: Mapped[str] = mapped_column(String(64))
     source_file: Mapped[str | None] = mapped_column(Text)
     source_url: Mapped[str | None] = mapped_column(Text)
@@ -288,6 +293,8 @@ class PartMapping(Base, TimestampMixin):
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
     source: Mapped[str] = mapped_column(String(64))
     source_url: Mapped[str | None] = mapped_column(Text)
+    # AC numbers repeat across states; NULL (rows stored before this column) = Uttarakhand.
+    state_id: Mapped[int | None] = mapped_column(ForeignKey("states.id"))
 
 
 # --------------------------------------------------------------------------
