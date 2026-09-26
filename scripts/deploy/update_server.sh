@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Server copy of update_existing.sh for /var/www/Boot-Intelligence with the `booth` CONDA
-# env instead of .venv. On the first run it also points the systemd service at the conda
-# env (a drop-in, see step 7). Everything else is as in update_existing.sh:
+# Server copy of update_existing.sh for /var/www/Boot-Intelligence with the `booth` conda
+# env at /root/miniconda3/envs/booth instead of .venv. Run it as root. Packages are
+# installed as root (the env belongs to root); the app commands run as the owner of
+# APP_DIR if that user can reach the env, otherwise as root and data/ is handed back to
+# the owner afterwards. Step 7 points the systemd service at the conda env (a drop-in),
+# but only if the service's user can reach it. Everything else is as in update_existing.sh:
 #
 # Update an EXISTING deployment (the original Uttarakhand version) to the multi-state
 # version with Uttar Pradesh results and polling stations — without touching nginx, the
@@ -21,15 +24,15 @@
 #        UP Form 20 results, UP polling stations (DATA_BUNDLE: parse data/raw, no downloads)
 #   7. restart the dashboard service
 #
-# Usage (as root, or as the user owning $APP_DIR with sudo for the restart):
+# Usage (as root):
 #   sudo bash /var/www/Boot-Intelligence/scripts/deploy/update_server.sh   # the usual update
 #   sudo STATE_FILE=/root/up_data.sqlite3.gz bash scripts/deploy/update_server.sh
 #   sudo STATE_FILE_URL='https://...direct-link...' bash scripts/deploy/update_server.sh
 #   sudo DATA_BUNDLE=/root/booth-data.tar.gz bash scripts/deploy/update_server.sh
-#   sudo ENV_DIR=/opt/miniconda3/envs/booth bash scripts/deploy/update_server.sh
+#   sudo ENV_DIR=/path/to/envs/booth bash scripts/deploy/update_server.sh
 #
 # Options: APP_DIR (default /var/www/Boot-Intelligence), BRANCH (default main), SERVICE
-# (default booth-intel), CONDA_ENV (default booth) / ENV_DIR (the env's directory),
+# (default booth-intel), ENV_DIR (default /root/miniconda3/envs/booth),
 # STATE_FILE / STATE_FILE_URL, FORCE_IMPORT=1 (import unchanged files again),
 # DATA_BUNDLE / DATA_BUNDLE_URL, SKIP_DATA=1.
 set -euo pipefail
@@ -37,7 +40,7 @@ set -euo pipefail
 APP_DIR="${APP_DIR:-/var/www/Boot-Intelligence}"
 BRANCH="${BRANCH:-main}"
 SERVICE="${SERVICE:-booth-intel}"
-CONDA_ENV="${CONDA_ENV:-booth}"
+ENV_DIR="${ENV_DIR:-/root/miniconda3/envs/booth}"
 DATA_BUNDLE="${DATA_BUNDLE:-}"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/booth-intel}"
 LOG="${LOG:-$APP_DIR/data/processed/update-$(date +%Y%m%d-%H%M%S).log}"
@@ -45,21 +48,12 @@ LOG="${LOG:-$APP_DIR/data/processed/update-$(date +%Y%m%d-%H%M%S).log}"
 log() { echo -e "\n\033[1;34m==> $*\033[0m"; }
 die() { echo -e "\033[1;31mERROR: $*\033[0m" >&2; exit 1; }
 
+[ "$(id -u)" = 0 ] || die "run as root (sudo): the conda env is in /root"
 [ -d "$APP_DIR/.git" ] || die "$APP_DIR is not a git checkout (set APP_DIR to the deployed directory)"
 OWNER="$(stat -c %U "$APP_DIR")"
-OWNER_HOME="$(getent passwd "$OWNER" | cut -d: -f6)"
-# the booth conda env: ENV_DIR, or the usual install locations (system-wide first)
-if [ -z "${ENV_DIR:-}" ]; then
-    for base in /opt/miniconda3 /opt/miniforge3 /opt/conda /opt/anaconda3 \
-                "$OWNER_HOME/miniconda3" "$OWNER_HOME/miniforge3" "$OWNER_HOME/anaconda3" \
-                "$HOME/miniconda3" "$HOME/miniforge3" "$HOME/anaconda3"; do
-        [ -x "$base/envs/$CONDA_ENV/bin/python" ] && ENV_DIR="$base/envs/$CONDA_ENV" && break
-    done
-fi
-[ -n "${ENV_DIR:-}" ] && [ -x "$ENV_DIR/bin/python" ] \
-    || die "conda env '$CONDA_ENV' not found — create it (see docs) or set ENV_DIR=/path/to/envs/$CONDA_ENV"
+[ -x "$ENV_DIR/bin/python" ] || die "no conda env at $ENV_DIR (set ENV_DIR=/path/to/envs/booth)"
 PY="$ENV_DIR/bin/python"
-echo "app: $APP_DIR (owner $OWNER)   env: $ENV_DIR"
+can_use_env() { [ "$1" = root ] || sudo -u "$1" test -x "$PY"; }   # /root is usually 700
 # this script must be committed: step 2 stashes untracked files, which would include it
 git -C "$APP_DIR" ls-files --error-unmatch scripts/deploy/update_server.sh >/dev/null 2>&1 \
     || die "scripts/deploy/update_server.sh is not committed in $APP_DIR — commit and push it, then git pull on the server"
@@ -67,8 +61,15 @@ run() {   # as the owner of the deployment, in APP_DIR, with PYTHONPATH set
     if [ "$(id -un)" = "$OWNER" ]; then (cd "$APP_DIR" && PYTHONPATH=src bash -c "$*")
     else sudo -u "$OWNER" -H bash -c "cd '$APP_DIR' && PYTHONPATH=src $*"; fi
 }
+# app commands: as the owner when it can reach the env, otherwise as root
+if can_use_env "$OWNER"; then PYUSER="$OWNER"; else PYUSER=root; fi
+pyrun() {
+    if [ "$PYUSER" = root ]; then (cd "$APP_DIR" && PYTHONPATH=src bash -c "$*")
+    else run "$*"; fi
+}
+give_back() { [ "$OWNER" = root ] || chown -R "$OWNER:" "$APP_DIR/data"; }   # files root made
+echo "app: $APP_DIR (owner $OWNER)   env: $ENV_DIR   app commands run as: $PYUSER"
 mkdir -p "$(dirname "$LOG")"
-run "'$PY' -c 'import sys' " || die "$OWNER cannot run $PY — install conda somewhere $OWNER can read (e.g. /opt/miniconda3)"
 
 SELF="$APP_DIR/scripts/deploy/update_server.sh"
 if [ "${CODE_UPDATED:-0}" = 1 ]; then
@@ -77,10 +78,12 @@ else
 # ------------------------------------------------------------------ 1. backup
 log "1/7 database backup"
 url="$(grep -E '^DATABASE_URL=' "$APP_DIR/.env" 2>/dev/null | cut -d= -f2- | sed 's#+psycopg##' || true)"
-if [[ "$url" == postgresql* ]] && command -v pg_dump >/dev/null; then
+PG_DUMP="$(command -v pg_dump || true)"
+[ -n "$PG_DUMP" ] || { [ -x "$ENV_DIR/bin/pg_dump" ] && PG_DUMP="$ENV_DIR/bin/pg_dump"; } || true
+if [[ "$url" == postgresql* ]] && [ -n "$PG_DUMP" ]; then
     mkdir -p "$BACKUP_DIR"
     out="$BACKUP_DIR/before-update-$(date +%Y%m%d-%H%M%S).dump"
-    pg_dump --format=custom --no-owner --dbname="$url" --file="$out" && echo "backup: $out"
+    "$PG_DUMP" --format=custom --no-owner --dbname="$url" --file="$out" && echo "backup: $out"
 elif [[ "$url" == postgresql* ]] && command -v docker >/dev/null && docker ps --format '{{.Names}}' | grep -q uk-election-poc-db; then
     mkdir -p "$BACKUP_DIR"
     out="$BACKUP_DIR/before-update-$(date +%Y%m%d-%H%M%S).sql"
@@ -106,12 +109,12 @@ fi
 fi
 
 # ------------------------------------------------------------------ 3. packages
-log "3/7 Python packages (conda env $CONDA_ENV)"
-run "'$PY' -m pip install --quiet -r requirements.txt"
+log "3/7 Python packages (conda env $ENV_DIR, as root)"
+(cd "$APP_DIR" && "$PY" -m pip install --quiet -r requirements.txt)
 
 # ------------------------------------------------------------------ 4. schema
 log "4/7 schema (additive, nullable columns only)"
-backend="$(run "'$PY' -c 'from app.database.session import init_db; print(init_db())'" | tail -1)"
+backend="$(pyrun "'$PY' -c 'from app.database.session import init_db; print(init_db())'" | tail -1)"
 echo "backend: $backend"
 [[ "$backend" == *sqlite* ]] && echo "WARNING: the app is on SQLite, not PostgreSQL — check DATABASE_URL in $APP_DIR/.env"
 
@@ -146,7 +149,7 @@ import_file() {   # import one export unless this exact file was imported alread
     [ "$(realpath "$f")" = "$(realpath -m "$staged")" ] || cp "$f" "$staged"
     chown "$OWNER:" "$staged"
     echo "  $name: importing (only the states in the file are added or replaced)"
-    run "'$PY' -m app import-state --file '$staged'" 2>&1 | tee -a "$LOG" \
+    pyrun "'$PY' -m app import-state --file '$staged'" 2>&1 | tee -a "$LOG" \
         || die "import of $name failed — nothing was changed (one transaction); see $LOG"
     echo "$sum" > "$marker"
     [ "$staged" = "$f" ] || rm -f "$staged"
@@ -176,13 +179,14 @@ else
     log "6/7 data (log: $LOG)"
     step() {
         echo "--- $(date -Is) $*" | tee -a "$LOG"
-        run "'$PY' -m app $*" >>"$LOG" 2>&1 && echo "    ok" \
+        pyrun "'$PY' -m app $*" >>"$LOG" 2>&1 && echo "    ok" \
             || echo "    FAILED — see $LOG; re-running this script resumes where it stopped"
     }
     step "pipeline --missing-only --quiet"        # UP + Telangana districts/ACs from ECI
     step "results --state 'Uttar Pradesh'"         # UP Form 20 2012/2017/2022
     step "stations"                                 # UP polling stations (75 district lists)
 fi
+give_back
 
 # ------------------------------------------------------------------ 7. restart
 log "7/7 restart $SERVICE"
@@ -195,15 +199,21 @@ if systemctl list-unit-files "$SERVICE.service" >/dev/null 2>&1 && systemctl cat
         python*) new="$PY" ;;
         *)       new="$ENV_DIR/bin/$(basename "$bin")" ;;
     esac
+    svc_user="$(systemctl show -p User --value "$SERVICE")"; svc_user="${svc_user:-root}"
     if [ "$bin" != "$new" ]; then
-        if [ -x "$new" ] && [ "$(id -u)" = 0 ]; then
+        if ! can_use_env "$svc_user"; then
+            echo "WARNING: the service runs as '$svc_user', who cannot reach $ENV_DIR (/root is private)."
+            echo "         It keeps running $bin. To switch it to the conda env, allow entry"
+            echo "         into /root without listing it, then run this script again:"
+            echo "           sudo chmod 711 /root"
+        elif [ -x "$new" ]; then
             mkdir -p "/etc/systemd/system/$SERVICE.service.d"
             printf '[Service]\nExecStart=\nExecStart=%s%s\n' "$new" "$args" \
                 > "/etc/systemd/system/$SERVICE.service.d/conda-env.conf"
             systemctl daemon-reload
             echo "service now runs: $new$args"
         else
-            echo "WARNING: $SERVICE runs $bin, not the conda env — run this script as root to switch it"
+            echo "WARNING: $new does not exist — $SERVICE keeps running $bin"
         fi
     fi
     systemctl restart "$SERVICE" && sleep 3 && systemctl --no-pager --lines=0 status "$SERVICE" | head -3
