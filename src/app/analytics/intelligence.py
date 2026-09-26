@@ -1696,6 +1696,20 @@ def state_summary(db: Session, state_id: int | None = None) -> dict:
     }
 
 
+def state_ac_results_quality(db: Session, state_id: int | None = None) -> dict:
+    """Constituency-level (ECI report) counts for a state: candidate rows, constituency
+    results (one per AC and year) and how many pass `ac_result_check` — the same check
+    as the constituency pages."""
+    name = _scope_state_name(db, state_id)
+    groups: dict[tuple[int, int], list[AcResult]] = {}
+    for r, year in db.execute(select(AcResult, Election.election_year)
+                              .join(Election, AcResult.election_id == Election.id)
+                              .where(Election.state == name)):
+        groups.setdefault((year, r.ac_number), []).append(r)
+    return {"rows": sum(len(g) for g in groups.values()), "results": len(groups),
+            "verified": sum(1 for g in groups.values() if ac_result_check(g)[0])}
+
+
 def state_results_quality(db: Session, state_id: int | None = None) -> dict:
     """Form 20 verified/review counts for a state — the same shared calculation as every other page."""
     return form20_quality_summary(_cached_checks(db, state_id))

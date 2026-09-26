@@ -19,7 +19,7 @@ from sqlalchemy import func, select
 from ..analytics.intelligence import (
     ac_level_results, ac_observations, ac_overview, all_availability, booth_detail, default_ac_id,
     mapping_summary_all, mapping_table, quality_overview, result_detail, results_for_ac, search,
-    source_label, state_results_quality, state_summary, summarize_results,
+    source_label, state_ac_results_quality, state_results_quality, state_summary, summarize_results,
 )
 from ..config import ROOT
 from ..database.models import AssemblyConstituency, District, Elector, State
@@ -107,7 +107,8 @@ def home(request: Request):
                        mapping=mapping_summary_all(db, sid),
                        historical=[a for a in s["availability"] if not a.is_current],
                        result_acs=[a for a in s["availability"] if a.result_records],
-                       rq=state_results_quality(db, sid) if s["results"] else None)
+                       rq=state_results_quality(db, sid) if s["results"] else None,
+                       aq=state_ac_results_quality(db, sid) if s["acs_with_ac_results"] else None)
 
 
 @app.get("/constituencies", response_class=HTMLResponse)

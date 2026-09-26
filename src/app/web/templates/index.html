@@ -25,8 +25,9 @@
   <div class="bs"><div class="v">{{ s.districts }}</div><div class="l">Districts</div></div>
   <div class="bs"><div class="v">{{ s.acs_current }}</div><div class="l">Assembly Constituencies</div></div>
   {% if not s.booth_sources and not s.results and s.acs_with_ac_results %}
-  <div class="bs"><div class="v">{{ s.acs_with_ac_results }}</div><div class="l">Constituencies with Results</div>
-    <div class="s">candidate-wise results for {{ s.ac_result_years|join(' and ') }} (ECI statistical reports)</div></div>
+  <div class="bs"><div class="v">{{ aq.rows|n }}</div><div class="l">Historical Constituency Results</div>
+    <div class="s">candidate rows for {{ s.acs_with_ac_results }} of {{ s.acs_current }} constituencies ({{ s.ac_result_years|join(', ') }});
+      {{ aq.verified|n }} of {{ aq.results|n }} constituency results verified</div></div>
   {% elif s.booth_sources or not s.results %}
   <div class="bs"><div class="v">{{ s.stations_current|n }}</div><div class="l">Current Polling Stations</div>
     <div class="s">current list ingested for {{ s.acs_with_stations }} of {{ s.acs_current }} constituencies</div></div>
@@ -37,15 +38,21 @@
 </div>
 
 <div class="flow" aria-label="How the data is built">
-  <div class="step"><b>Official data</b><span>ECI{% if s.booth_sources or s.results %} &amp; CEO {{ current_state.state_name }}{% endif %} sources</span></div><div class="arrow">→</div>
+  <div class="step"><b>Official data</b><span>{% if aq and not s.results %}ECI statistical reports{% else %}ECI{% if s.booth_sources or s.results %} &amp; CEO {{ current_state.state_name }}{% endif %} sources{% endif %}</span></div><div class="arrow">→</div>
   <div class="step"><b>Structured</b><span>State → district → AC → booth</span></div><div class="arrow">→</div>
-  {% if s.booth_sources or not s.results %}
+  {% if not s.booth_sources and not s.results and aq %}
+  <div class="step"><b>Validated</b><span>{{ aq.verified|n }} of {{ aq.results|n }} constituency results reconcile with the printed totals</span></div><div class="arrow">→</div>
+  {% elif s.booth_sources or not s.results %}
   <div class="step"><b>Validated</b><span>{{ s.electors|n }} records checked</span></div><div class="arrow">→</div>
   <div class="step"><b>Mapped</b><span>{{ mapping.values()|sum }} village-level mapping relationships</span></div><div class="arrow">→</div>
   {% else %}
   <div class="step"><b>Validated</b><span>{{ rq.verified|n }} of {{ rq.rows|n }} result rows reconcile with the printed totals</span></div><div class="arrow">→</div>
   {% endif %}
+  {% if not s.booth_sources and not s.results and aq %}
+  <div class="step end"><b>Constituency view</b><span>result card per constituency and year</span></div>
+  {% else %}
   <div class="step end"><b>Booth-level view</b><span>constituency and booth pages</span></div>
+  {% endif %}
 </div>
 
 {% set years = (result_acs|map(attribute='result_years')|sum(start=[]))|unique|sort|join(', ') %}
