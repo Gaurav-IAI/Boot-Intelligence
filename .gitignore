@@ -15,3 +15,6 @@ node_modules/
 *.tar.gz
 data/_bundle/
 data/*.bak
+*.sqlite3.gz
+# the state export shared with production (see docs/DEPLOYMENT.md)
+!deploy/up_data.sqlite3.gz

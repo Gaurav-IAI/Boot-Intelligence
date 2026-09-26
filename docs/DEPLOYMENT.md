@@ -10,7 +10,61 @@ database. There is no build step, no front-end toolchain and no message queue.
 
 ---
 
-## 0. Quick start for the server administrator
+## Updating the existing deployment (Uttarakhand-only version → multi-state with UP)
+
+If the dashboard already runs on the server (deployed from the first version), **do not
+run `setup_server.sh`**. It is meant for fresh servers and would also reconfigure nginx,
+the firewall and PostgreSQL. Use the update script instead. It changes only the code
+and adds data:
+
+**Recommended: import the Uttar Pradesh export (~35 MB).** The data owner exports UP on
+the workstation:
+
+```powershell
+python -m app export-state --state "Uttar Pradesh" --from "sqlite:///data/uk_election.sqlite3" --out up_data.sqlite3.gz
+```
+
+and commits it as `deploy/up_data.sqlite3.gz` (it is in the repository, so the server
+gets it with `git pull`). On the server:
+
+```bash
+cd /opt/booth-intel                      # the deployed git checkout
+git fetch origin && git checkout main && git pull
+sudo APP_DIR=/opt/booth-intel BRANCH=main \
+     STATE_FILE=/opt/booth-intel/deploy/up_data.sqlite3.gz \
+     bash scripts/deploy/update_existing.sh
+```
+
+In order, it:
+1. backs up the database (`/var/backups/booth-intel/before-update-*`);
+2. checks out `BRANCH` and installs the two new Python packages;
+3. adds the new database columns (automatic, nullable, nothing removed);
+4. imports the file with `python -m app import-state`. Only Uttar Pradesh's rows are
+   added (or, on a repeat, replaced). Uttarakhand and everything else stays as it is.
+   There are no downloads and no parsing. It runs in one transaction: it either fully
+   succeeds or changes nothing. Tested against PostgreSQL: 461,498 rows in about 40
+   seconds;
+5. restarts the `booth-intel` service.
+
+**Alternative: load UP from the official sources on the server.** Leave out `STATE_FILE`.
+The script then discovers the UP and Telangana constituencies (ECI) and loads the UP
+Form 20 results and polling stations itself. That takes several hours, or about an hour
+with `DATA_BUNDLE=` (the 2.4 GB source files, parsed instead of downloaded).
+
+Notes:
+- Use `BRANCH=feature/up-results-stations-deploy` if the pull request isn't merged yet.
+- Pass `SERVICE=<name>` if the systemd unit has another name.
+- Without a bundle, step 5 downloads the UP sources, which takes several hours.
+- If a step fails (for example a network outage), run the same command again: every
+  step resumes where it stopped.
+- Progress is in `data/processed/update-*.log`.
+
+To keep the data fresh, add the weekly refresh and nightly backup timers from section 6
+(`booth-intel-refresh`, `booth-intel-backup`).
+
+---
+
+## 0. Quick start for the server administrator (fresh server)
 
 You need the repository URL and, from the data owner, a **direct-download link to
 `booth-data.tar.gz`**. The bundle holds the loaded data (~2–3 GB) and is too large for
