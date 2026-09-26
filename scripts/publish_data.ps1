@@ -14,6 +14,9 @@
   powershell -ExecutionPolicy Bypass -File scripts\publish_data.ps1
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File scripts\publish_data.ps1 -NoPush
+.EXAMPLE
+  powershell -ExecutionPolicy Bypass -File scripts\publish_data.ps1 -State Telangana
+  (writes deploy\tg_data.sqlite3.gz)
 #>
 param(
     [string]$State = "Uttar Pradesh",
@@ -30,7 +33,9 @@ $env:PYTHONPATH = "src"
 $env:PYTHONIOENCODING = "utf-8"
 
 $slug = ($State.ToLower() -replace '[^a-z]+', ' ').Trim().Split(' ') | ForEach-Object { $_[0] }
-$out = "deploy\" + (-join $slug) + "_data.sqlite3.gz"          # "Uttar Pradesh" -> deploy\up_data.sqlite3.gz
+$short = @{ "telangana" = "tg" }[$State.ToLower()]               # one-word names: a readable code
+if (-not $short) { $short = -join $slug }
+$out = "deploy\" + $short + "_data.sqlite3.gz"                  # "Uttar Pradesh" -> deploy\up_data.sqlite3.gz
 New-Item -ItemType Directory -Force deploy | Out-Null
 $source = "sqlite:///" + ((Join-Path $root $Database) -replace '\\', '/')
 

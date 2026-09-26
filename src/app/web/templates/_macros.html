@@ -41,7 +41,7 @@
     {% if a.current_stations %}<div class="main">{{ a.current_stations|n }} polling stations</div>
     {% else %}<div class="main na">Polling stations not yet ingested</div>{% endif %}
     <ul>
-      <li class="{{ 'yes' if a.result_records else 'no' }}">{{ (a.result_years|join(', ') ~ ' results available') if a.result_records else 'Historical results: not available' }}</li>
+      <li class="{{ 'yes' if (a.result_records or a.ac_result_years) else 'no' }}">{{ (a.result_years|join(', ') ~ ' results available') if a.result_records else ((a.ac_result_years|join(', ') ~ ' constituency results available') if a.ac_result_years else 'Historical results: not available') }}</li>
       <li class="{{ 'yes' if a.current_roll_records else 'no' }}">Current voter roll: {{ 'available' if a.current_roll_records else 'not available' }}</li>
     </ul>
   {% else %}

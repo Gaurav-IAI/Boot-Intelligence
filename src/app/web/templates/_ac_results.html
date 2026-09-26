@@ -1,0 +1,48 @@
+{# Constituency-level results (ECI statistical report). Expects `ac_elections` and `ui`. #}
+{% for e in ac_elections %}
+{% set w = e.winner %}{% set r2 = e.runner_up %}
+<section id="ac-result-{{ e.year }}">
+  <div class="sh"><h2>{{ e.year }} Assembly election — constituency result</h2>
+    {{ ui.ctx('hist', 'Historical result — ' ~ e.year) }}</div>
+  <p class="lede" style="margin:0 0 12px">Candidate-wise votes for the whole constituency, from the Election
+    Commission of India's statistical report. Booth-level (Form 20) figures are not available for this election.</p>
+  <div class="cards">
+    {{ ui.kpi(w.candidate_name if w else '—', 'Winner', (w.party ~ ' · ' ~ (w.total_votes|n) ~ ' votes') if w else None) }}
+    {{ ui.kpi(r2.candidate_name if r2 else '—', 'Runner-up', (r2.party ~ ' · ' ~ (r2.total_votes|n) ~ ' votes') if r2 else None) }}
+    {{ ui.kpi(e.margin|n if e.margin is not none else '—', 'Winning margin', (e.margin_pct|pct ~ ' of votes polled') if e.margin_pct is not none else None) }}
+    {{ ui.kpi(e.turnout_pct|pct if e.turnout_pct is not none else '—', 'Turnout', (e.total|n ~ ' of ' ~ (e.electors|n) ~ ' electors') if e.electors else None) }}
+  </div>
+  <div class="mt">{% if e.verified %}{{ ui.chip('good', 'Verified', e.note) }}{% else %}{{ ui.chip('warn', 'Review required', e.note) }}{% endif %}
+    <span class="muted small">{{ e.note }}</span></div>
+  <div class="tablecard mt">
+    <div class="scroll-y short">
+    <table>
+      <thead><tr><th>Candidate</th><th>Party</th><th>Symbol</th><th class="num">General</th><th class="num">Postal</th>
+        <th class="num">Total votes</th><th class="num">Share</th></tr></thead>
+      <tbody>
+      {% for c in e.candidates %}
+      <tr>
+        <td>{% if loop.first %}<strong>{{ c.candidate_name }}</strong>{% else %}{{ c.candidate_name }}{% endif %}
+          {% if c.sex or c.age %}<span class="muted small">{{ c.sex or '' }}{% if c.age %}, {{ c.age }}{% endif %}{% if c.category %} · {{ c.category }}{% endif %}</span>{% endif %}</td>
+        <td>{{ c.party or '—' }}</td>
+        <td class="muted small">{{ c.symbol or '' }}</td>
+        <td class="num">{{ c.general_votes|n if c.general_votes is not none else '—' }}</td>
+        <td class="num">{{ c.postal_votes|n if c.postal_votes is not none else '—' }}</td>
+        <td class="num"><strong>{{ c.total_votes|n }}</strong></td>
+        <td class="num">{{ c.vote_pct|pct if c.vote_pct is not none else '—' }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+  <details class="prov mt">
+    <summary>View data provenance</summary>
+    <div class="inner"><dl class="kv">
+      <dt>Source</dt><dd>{{ source_label('eci_statistical_report') }}</dd>
+      <dt>Document</dt><dd><code>{{ e.source_file }}</code></dd>
+      <dt>Source URL</dt><dd><code>{{ e.source_url }}</code></dd>
+    </dl></div>
+  </details>
+</section>
+{% endfor %}

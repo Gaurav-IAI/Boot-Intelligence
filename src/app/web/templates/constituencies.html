@@ -24,7 +24,7 @@
       <td class="num">{{ a.current_stations|n if a.current_stations else '—' }}</td>
       <td><div class="chips">
         {% if a.current_stations %}{{ ui.chip('good', 'Current polling stations') }}{% endif %}
-        {% if a.result_records %}{{ ui.chip('good', 'Historical results ' ~ a.result_years|join(', ')) }}{% endif %}
+        {% if a.result_records %}{{ ui.chip('good', 'Historical results ' ~ a.result_years|join(', ')) }}{% elif a.ac_result_years %}{{ ui.chip('good', 'Constituency results ' ~ a.ac_result_years|join(', ')) }}{% endif %}
         {% if a.mapping_status != 'none' %}{{ ui.chip('warn', 'Booth mapping (partial)') }}{% endif %}
         {% if not (a.current_stations or a.result_records) %}<span class="muted small">Constituency record only</span>{% endif %}
       </div></td>

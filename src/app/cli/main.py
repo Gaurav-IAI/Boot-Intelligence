@@ -447,8 +447,14 @@ def cmd_results(
     init_db()
     with get_session() as db, _http(3) as http:
         try:
-            run = load_state_results(db, http, name, years=year_t, districts=dists, acs=ac_t,
-                                     resume=resume, refresh=refresh)
+            if name == "Telangana":
+                # booth-level Form 20 is scanned: constituency-level results from the ECI report
+                from ..services.ac_results import load_ac_results
+                run = load_ac_results(db, http, name, years=year_t, resume=resume)
+                run.tally = {"failed": 0 if run.stored else 1}
+            else:
+                run = load_state_results(db, http, name, years=year_t, districts=dists, acs=ac_t,
+                                         resume=resume, refresh=refresh)
         except LookupError as exc:
             console.print(f"[red]{exc}[/]")
             raise typer.Exit(1)

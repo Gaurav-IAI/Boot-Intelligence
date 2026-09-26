@@ -5,7 +5,9 @@
 <h1>{% if ac.delimitation == 'current' %}AC {{ ac.ac_number }} — {{ ac.ac_name }}{% else %}Historical AC {{ ac.ac_number }} — {{ ac.ac_name }} ({{ ac.delimitation }}){% endif %}</h1>
 <div class="subhead">{{ district.district_name }} · <a href="/ac/{{ ac.id }}">Constituency overview</a></div>
 
-{% if not summaries %}
+{% include "_ac_results.html" %}
+
+{% if not summaries and not ac_elections %}
 <section>
   <div class="panel"><p>No historical election results are available for this constituency in the current POC.
     {% if ac.delimitation != 'current' %}Results in this POC belong to elections held under the current delimitation,

@@ -15,7 +15,7 @@
   <div><span class="l">Current polling-station data</span>
     {% if av.current_stations %}<b>{{ av.current_stations|n }} polling stations</b>{% else %}<b class="na">Not yet ingested</b>{% endif %}</div>
   <div><span class="l">Historical election data</span>
-    {% if av.result_records %}<b>{{ av.result_years|join(', ') }} (Form 20) — {{ av.result_records|n }} booth records</b>{% else %}<b class="na">Not available in current POC</b>{% endif %}</div>
+    {% if av.result_records %}<b>{{ av.result_years|join(', ') }} (Form 20) — {{ av.result_records|n }} booth records</b>{% elif av.ac_result_years %}<b>{{ av.ac_result_years|join(', ') }} — constituency results (ECI)</b>{% else %}<b class="na">Not available in current POC</b>{% endif %}</div>
   <div><span class="l">Current electoral-roll data</span>
     {% if av.current_roll_records %}<b>{{ av.current_roll_records|n }} records</b>{% else %}<b class="na">Not available from the current public source</b>{% endif %}</div>
 {% else %}
@@ -39,7 +39,8 @@
   {% if cur %}
     {{ ui.kpi(av.current_stations|n if av.current_stations else 'Not yet ingested', 'Polling stations', 'current list (SIR-2026)' if av.current_stations else None, not av.current_stations) }}
     {{ ui.kpi(av.result_records|n if av.result_records else 'Not available in current POC', 'Historical result records', 'Form 20, polling-station level' if av.result_records else None, not av.result_records) }}
-    {{ ui.kpi(av.result_years|join(', ') if av.result_years else 'Not available in current POC', 'Historical elections', 'Vidhan Sabha' if av.result_years else None, not av.result_years) }}
+    {% set hy = av.result_years or av.ac_result_years %}
+    {{ ui.kpi(hy|join(', ') if hy else 'Not available in current POC', 'Historical elections', ('Vidhan Sabha' if av.result_years else 'constituency-level (ECI)') if hy else None, not hy) }}
     {{ ui.kpi(av.current_roll_records|n if av.current_roll_records else 'Not available', 'Current voter roll', 'from the current public source' if not av.current_roll_records else None, not av.current_roll_records) }}
   {% else %}
     {{ ui.kpi(av.historical_stations|n, 'Historical parts (booths)', av.roll_years|join(', ') ~ ' electoral roll') }}
@@ -104,6 +105,8 @@
   <div class="panel"><p>The polling-station list for this constituency has not been ingested yet.</p></div>
   {% endif %}
 </section>
+
+{% include "_ac_results.html" %}
 
 {% for e in o.elections %}
 <section id="results">

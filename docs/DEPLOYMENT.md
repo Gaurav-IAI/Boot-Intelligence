@@ -17,14 +17,16 @@ run `setup_server.sh`**. It is meant for fresh servers and would also reconfigur
 the firewall and PostgreSQL. Use the update script instead. It changes only the code
 and adds data:
 
-**How data reaches production.** The Uttar Pradesh data travels as a small export
-(`deploy/up_data.sqlite3.gz`, ~35 MB) committed in the repository.
+**How data reaches production.** Each state's data travels as a small export committed
+in the repository: `deploy/up_data.sqlite3.gz` (Uttar Pradesh, ~35 MB) and
+`deploy/tg_data.sqlite3.gz` (Telangana constituency results, well under 1 MB).
 
 - **Data owner (workstation), whenever the data changes:**
   ```powershell
   powershell -ExecutionPolicy Bypass -File scripts\publish_data.ps1
+  powershell -ExecutionPolicy Bypass -File scripts\publish_data.ps1 -State Telangana
   ```
-  This exports UP from the full local database, then commits and pushes the file. If
+  Each run exports one state from the full local database, then commits and pushes the file. If
   that pushes a branch other than `main`, merge it into `main`.
 
 - **Server administrator, to update (the same command every time):**

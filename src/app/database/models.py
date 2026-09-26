@@ -264,6 +264,38 @@ class ElectionResult(Base, TimestampMixin):
     election: Mapped[Election] = relationship(back_populates="results")
 
 
+class AcResult(Base, TimestampMixin):
+    """One candidate's votes in one assembly constituency (not per booth), as published in
+    the ECI statistical report ("Detailed Results"). Used where booth-level Form 20 cannot
+    be read; it never mixes with the booth rows in `election_results`."""
+
+    __tablename__ = "ac_results"
+    __table_args__ = (Index("ix_ac_results_election_ac", "election_id", "ac_number"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    election_id: Mapped[int] = mapped_column(ForeignKey("elections.id"))
+    ac_id: Mapped[int | None] = mapped_column(ForeignKey("assembly_constituencies.id"))
+    ac_number: Mapped[int] = mapped_column(Integer)
+    ac_name: Mapped[str | None] = mapped_column(String(128))       # as printed
+    serial: Mapped[int | None] = mapped_column(Integer)             # candidate's printed serial / rank
+    candidate_name: Mapped[str] = mapped_column(String(256))
+    sex: Mapped[str | None] = mapped_column(String(16))
+    age: Mapped[int | None] = mapped_column(Integer)
+    category: Mapped[str | None] = mapped_column(String(16))
+    party: Mapped[str | None] = mapped_column(String(64))
+    symbol: Mapped[str | None] = mapped_column(String(128))
+    general_votes: Mapped[int | None] = mapped_column(Integer)
+    postal_votes: Mapped[int | None] = mapped_column(Integer)
+    total_votes: Mapped[int] = mapped_column(Integer)
+    vote_pct: Mapped[float | None] = mapped_column(Float)          # as printed
+    total_electors: Mapped[int | None] = mapped_column(Integer)
+    printed_ac_total: Mapped[int | None] = mapped_column(Integer)  # the report's own AC total, if printed
+    source: Mapped[str] = mapped_column(String(64))
+    source_url: Mapped[str | None] = mapped_column(Text)
+    source_file: Mapped[str | None] = mapped_column(Text)
+    parser_version: Mapped[str | None] = mapped_column(String(64))
+
+
 class PartMapping(Base, TimestampMixin):
     """Links a part number in one edition to a part number in another.
 

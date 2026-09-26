@@ -26,11 +26,11 @@ import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import Select, and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..database.models import (
-    AssemblyConstituency, District, Election, ElectionResult, Elector,
+    AcResult, AssemblyConstituency, District, Election, ElectionResult, Elector,
     ElectoralRoll, PartMapping, PollingStation, SourceFetch, State,
 )
 from ..states import BOOTH_STATE, booth_state_id, mapping_state_id, spec
@@ -55,6 +55,7 @@ SOURCE_LABELS = {
     "ceo_up_form20": "CEO Uttar Pradesh — Form 20 polling-booth-wise result (Excel)",
     "ceo_tg_form20": "CEO Telangana — Form 20 Final Result Sheet (scanned PDF, OCR)",
     "ceo_up_ps_list_2026": "District Election Officer, Uttar Pradesh — List of Polling Stations (SIR 2026)",
+    "eci_statistical_report": "Election Commission of India — Statistical Report, Detailed Results",
 }
 
 
@@ -566,7 +567,7 @@ def _cnt(cond):
     return func.coalesce(func.sum(case((cond, 1), else_=0)), 0)
 
 
-def record_aggregates(db: Session, station_ids: list[int] | None = None
+def record_aggregates(db: Session, station_ids: list[int] | Select | None = None
                       ) -> dict[int, RecordAggregate]:
     prov = and_(Elector.source_url.is_not(None), Elector.source_document.is_not(None),
                 Elector.source_page.is_not(None), Elector.raw_text.is_not(None),
@@ -940,6 +941,82 @@ def result_detail(db: Session, result_id: int) -> tuple[ResultView, AssemblyCons
 
 
 @dataclass
+class AcElectionView:
+    """One constituency's result in one election, from the ECI statistical report."""
+    year: int
+    ac_number: int
+    ac_name: str | None
+    electors: int | None
+    candidates: list[AcResult]          # highest total first
+    verified: bool
+    note: str
+    source_url: str | None
+    source_file: str | None
+
+    @property
+    def total(self) -> int:
+        return sum(c.total_votes for c in self.candidates)
+
+    @property
+    def winner(self) -> AcResult | None:
+        return self.candidates[0] if self.candidates else None
+
+    @property
+    def runner_up(self) -> AcResult | None:
+        return self.candidates[1] if len(self.candidates) > 1 else None
+
+    @property
+    def margin(self) -> int | None:
+        return (self.winner.total_votes - self.runner_up.total_votes) if self.runner_up else None
+
+    @property
+    def margin_pct(self) -> float | None:
+        return round(pct(self.margin, self.total), 2) if self.margin is not None and self.total else None
+
+    @property
+    def turnout_pct(self) -> float | None:
+        return round(pct(self.total, self.electors), 2) if self.electors else None
+
+
+def ac_result_check(rows: list[AcResult]) -> tuple[bool, str]:
+    """Recomputed on every read: general + postal = total for each candidate, and the candidates
+    add up to the report's printed constituency total where one is printed."""
+    bad = [r.candidate_name for r in rows if r.general_votes is not None and r.postal_votes is not None
+           and r.general_votes + r.postal_votes != r.total_votes]
+    if bad:
+        return False, f"General + postal votes differ from the total for {', '.join(bad[:3])}."
+    printed = next((r.printed_ac_total for r in rows if r.printed_ac_total is not None), None)
+    total = sum(r.total_votes for r in rows)
+    if printed is not None and printed != total:
+        return False, f"Candidate votes sum to {total:,}; the report prints {printed:,}."
+    return True, ("Candidate votes add up to the constituency total printed in the ECI report."
+                  if printed is not None else
+                  "General + postal votes equal the total for every candidate in the ECI report.")
+
+
+def ac_level_results(db: Session, ac: AssemblyConstituency) -> list[AcElectionView]:
+    """Constituency-level results (ECI statistical report) for a current AC, oldest first."""
+    if ac.delimitation != DELIM_CURRENT:
+        return []
+    rows = db.execute(select(AcResult, Election).join(Election, AcResult.election_id == Election.id)
+                      .where(or_(AcResult.ac_id == ac.id,
+                                 and_(AcResult.ac_id.is_(None), AcResult.ac_number == ac.ac_number,
+                                      Election.state == _state_name(db, _ac_state_id(db, ac)))))
+                      .order_by(Election.election_year)).all()
+    by_year: dict[int, list[AcResult]] = {}
+    for r, e in rows:
+        by_year.setdefault(e.election_year, []).append(r)
+    out = []
+    for year, rs in sorted(by_year.items()):
+        ok, note = ac_result_check(rs)
+        rs = sorted(rs, key=lambda r: -r.total_votes)
+        out.append(AcElectionView(year=year, ac_number=rs[0].ac_number, ac_name=rs[0].ac_name,
+                                  electors=rs[0].total_electors, candidates=rs, verified=ok, note=note,
+                                  source_url=rs[0].source_url, source_file=rs[0].source_file))
+    return out
+
+
+@dataclass
 class ElectionSummary:
     year: int
     election_type: str
@@ -1296,10 +1373,10 @@ def quality_overview(db: Session, backend: str, state_id: int | None = None,
     """`include_results=False` skips the full per-row result views (the page shows only counts)."""
     sid = scope_state_id(db, state_id)
     q = quality_report(db, backend, state_id=sid)
-    station_ids = list(db.scalars(select(PollingStation.id).where(
-        PollingStation.ac_id.in_(_state_ac_ids(db, sid)))))
+    # a subquery, not an id list: a state can have more stations than SQLite allows parameters
+    station_ids = select(PollingStation.id).where(PollingStation.ac_id.in_(_state_ac_ids(db, sid)))
     total = RecordAggregate()
-    for a in (record_aggregates(db, station_ids).values() if station_ids else ()):
+    for a in record_aggregates(db, station_ids).values():
         total.add(a)
     rolls = db.scalars(select(ElectoralRoll).where(ElectoralRoll.extraction_status == "extracted",
                                                    ElectoralRoll.polling_station_id.in_(station_ids))
@@ -1399,6 +1476,13 @@ def default_ac_id(db: Session, state_id: int | None = None) -> int | None:
             AssemblyConstituency.delimitation == DELIM_CURRENT))
         if ac_id:
             return ac_id
+    has_booth_results = db.scalar(select(ElectionResult.id)
+                                  .where(ElectionResult.ac_id.in_(_state_ac_ids(db, sid))).limit(1)) is not None
+    if not has_booth_results:        # a state with constituency-level results only (e.g. Telangana)
+        row = db.execute(select(AcResult.ac_id).where(AcResult.ac_id.in_(_state_ac_ids(db, sid)))
+                         .order_by(AcResult.ac_number).limit(1)).first()
+        if row:
+            return row[0]
     row = db.execute(select(ElectionResult.ac_id, func.count())
                      .where(ElectionResult.ac_id.in_(_state_ac_ids(db, sid)))
                      .group_by(ElectionResult.ac_id).order_by(func.count().desc())).first()
@@ -1424,6 +1508,7 @@ class AcAvailability:
     roll_years: list[int] = field(default_factory=list)
     result_records: int = 0
     result_years: list[int] = field(default_factory=list)
+    ac_result_years: list[int] = field(default_factory=list)    # constituency-level (ECI report)
     mapping_verified: int = 0
     mapping_review: int = 0
     mapping_unmapped: int = 0
@@ -1542,6 +1627,11 @@ def all_availability(db: Session, ac_ids: list[int] | None = None,
         if target in avs:
             avs[target].result_records += n
             avs[target].result_years = sorted(set(avs[target].result_years) | {year})
+    for ac_id, year in db.execute(select(AcResult.ac_id, Election.election_year)
+                                  .join(Election, AcResult.election_id == Election.id)
+                                  .where(AcResult.ac_id.is_not(None)).distinct()):
+        if ac_id in avs:
+            avs[ac_id].ac_result_years = sorted(set(avs[ac_id].ac_result_years) | {year})
 
     maps_by_state: dict[int, list[MappingView]] = {}
     keys_by_state: dict[int, dict] = {}
@@ -1584,6 +1674,7 @@ def state_summary(db: Session, state_id: int | None = None) -> dict:
             "stations": sum(a.current_stations for a in mine),
             "historical_stations": sum(a.historical_stations for a in mine),
             "has_results": any(a.result_records for a in mine),
+            "has_ac_results": any(a.ac_result_years for a in mine),
             "has_historical_roll": any(a.historical_roll_records for a in mine),
             "has_mapping": any(a.mapping_status != "none" for a in mine),
         })
@@ -1596,6 +1687,8 @@ def state_summary(db: Session, state_id: int | None = None) -> dict:
         "electors": sum(a.historical_roll_records + a.current_roll_records for a in avs),
         "mappings": len(_state_mapping_rows(db, sid)),
         "results": sum(a.result_records for a in avs),
+        "acs_with_ac_results": sum(1 for a in avs if a.ac_result_years),
+        "ac_result_years": sorted({y for a in avs for y in a.ac_result_years}),
         "district_rows": rows, "availability": avs,
         "state": state, "booth_sources": bool(sp and sp.booth_sources),
         "result_sources": bool(sp and sp.result_sources),
