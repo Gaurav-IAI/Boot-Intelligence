@@ -1,0 +1,4 @@
+# Only for machines that read scanned Form 20 sheets (`results --state Telangana --booths`).
+# Servers that import data exports (deploy/*.sqlite3.gz) do not need these.
+-r requirements.txt
+rapidocr_onnxruntime>=1.2   # second opinion on digit cells; Tesseract itself is a system install
