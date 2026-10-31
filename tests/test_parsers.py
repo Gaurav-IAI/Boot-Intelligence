@@ -118,6 +118,26 @@ class TestPsList2026Parser:
         withraw = [s for s in res.stations if s.part_name_raw]
         assert withraw, "the raw Kruti Dev text must be preserved for audit"
 
+    def test_rows_follow_the_drawn_row_borders(self):
+        # AC 55 Champawat: top-aligned cells, header "9 10 11 12 13". A station's last village
+        # must stay with it, not slide into the next station's list.
+        st = {s.part_number: s for s in parse_ps_list_pdf(FIXTURES / "ps_list_2026_ac55_p1-3.pdf", 55).stations}
+        assert st[1].areas == "1-बसान 2-मैरोली 3-लधौनटुकड़ा 4-कालूखान"
+        assert st[2].areas == "1-बड़पास 2-गॅूठगरसाड़ी"
+        assert all(s.areas.startswith("1-") for s in st.values() if s.part_number != 141)
+        # the tehsil heading above the first row belongs to no station
+        assert "तहसील" not in (st[1].station_name or "")
+
+    def test_rows_continue_across_page_breaks_and_inner_lines(self):
+        # AC 54 Lohaghat: part 14 starts at the very top of page 2; part 53's second village sits
+        # below an inner line of its own row.
+        st = {s.part_number: s for s in parse_ps_list_pdf(FIXTURES / "ps_list_2026_ac54_p1-3.pdf", 54).stations}
+        assert st[14].areas == "1-होली पिपलाटी 2-बॅुंगाबिरौड़ा"
+        assert "बॅुंगा" not in st[13].areas
+        assert st[53].areas == "1-प्ाखोटी 2-कनवाड़"
+        # tehsil headings between groups of stations are dropped, not attached
+        assert not any("तहसील-" in (s.station_name or "") + (s.areas or "") for s in st.values())
+
 
 class TestForm20Parser:
     @pytest.fixture(scope="class")

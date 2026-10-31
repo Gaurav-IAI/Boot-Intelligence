@@ -34,7 +34,9 @@ log = logging.getLogger(__name__)
 PARSER_NAME = "ps_list_2026_geometric"
 # 2.0.0: column boundaries derived from the body (1.x mis-split columns). Stations
 # enriched by an older version are re-parsed from the stored PDF by the pipeline.
-PARSER_VERSION = "2.1.0"      # 2.1.0: columns from the drawn grid, fallback to 2.0 heuristic
+PARSER_VERSION = "2.2.0"      # 2.1.0: columns from the drawn grid, fallback to 2.0 heuristic
+# 2.2.0: rows from the drawn row borders (a station's last village no longer slides into the
+#        next station), rows continued across a page break, sub-headings and signatures dropped
 
 HEADER_MARKERS = {"1", "2", "3", "4", "5"}
 ROW_TOLERANCE = 6.0
@@ -189,6 +191,63 @@ def _column_ranges(words: list, header: list[float], header_y: float) -> list[tu
     return [(nm, edges[i], edges[i + 1]) for i, nm in enumerate(names)]
 
 
+def _is_subheading(raw: str) -> bool:
+    """A tehsil heading printed across the table between groups of stations
+    ("तहसील-लोहाघाट", "उप तहसील-मंच"), not part of any station's row."""
+    text, _, _ = _convert(raw)
+    return "तहसील" in (text or "")
+
+
+def _table_top(page: pymupdf.Page) -> float:
+    """y just above a continuation page's table: its topmost long horizontal rule. A first row
+    can start within a few points of the page edge, so a fixed margin would drop it."""
+    ys = []
+    for g in page.get_drawings():
+        for it in g["items"]:
+            if it[0] == "l" and abs(it[1].y - it[2].y) < 1.5 and abs(it[1].x - it[2].x) > 100:
+                ys.append((it[1].y + it[2].y) / 2)
+            elif it[0] == "re" and it[1].height < 2.5 and it[1].width > 100:
+                ys.append((it[1].y0 + it[1].y1) / 2)
+    return min(ys) - 5.0 if ys else 30.0       # body starts 4pt below the returned y
+
+
+def _row_bands(page: pymupdf.Page, x: float, anchor_ys: list[float],
+               top: float) -> list[tuple[float, float]] | None:
+    """(top, bottom) of each station's row from the horizontal rules crossing the part-number
+    column at `x`. The part-number cell is merged over a station's whole row, so only the
+    rules between stations cross it; inner rules of a multi-line village list do not.
+    Works for top-aligned and vertically centred cells alike. None when the rules do not
+    give every anchor a band of its own (the page is then read by the older estimate)."""
+    ys: list[float] = []
+    for g in page.get_drawings():
+        for it in g["items"]:
+            if it[0] == "l":
+                a, b = it[1], it[2]
+                if abs(a.y - b.y) < 1.5 and min(a.x, b.x) <= x <= max(a.x, b.x):
+                    ys.append((a.y + b.y) / 2)
+            elif it[0] == "re":
+                r = it[1]
+                if r.height < 2.5 and r.x0 <= x <= r.x1:
+                    ys.append((r.y0 + r.y1) / 2)
+    rules: list[float] = []
+    for y in sorted(ys):
+        if y > top and (not rules or y - rules[-1] > 2.0):
+            rules.append(y)
+    if len(rules) < 2:
+        return None
+    bands = []
+    for ay in anchor_ys:
+        above = [r for r in rules if r <= ay + 2.0]
+        if not above:
+            return None
+        lo = above[-1]
+        below = [r for r in rules if r > lo]
+        bands.append((lo, below[0] if below else page.rect.height))
+    if any(bands[i][1] > bands[i + 1][0] + 0.5 for i in range(len(bands) - 1)):
+        return None                     # two anchors in one band: the rules are not row borders
+    return bands
+
+
 def _reading_order(items: list[tuple[float, float, str]]) -> str:
     """Join (y, x, text) words line by line; words within 4pt of y share a line."""
     lines: list[list[tuple[float, float, str]]] = []
@@ -220,6 +279,8 @@ def parse_ps_list_pdf(path: Path, ac_number: int | None = None) -> PsListResult:
         result.page_count = doc.page_count
         last_edges: list | None = None
         last_ranges: list | None = None
+        pending: list[tuple[int, int, dict]] = []     # (part, page, cells) in document order
+        carry: tuple[int, int, dict] | None = None    # the last station read: a page break may continue it
         for pno in range(doc.page_count):
             page = doc[pno]
             words = page.get_text("words")
@@ -230,7 +291,7 @@ def parse_ps_list_pdf(path: Path, ac_number: int | None = None) -> PsListResult:
                 if last_edges is None:
                     result.warnings.append(f"page {pno + 1}: column header row not found")
                     continue
-                edges, header_y = last_edges, 30.0
+                edges, header_y = last_edges, _table_top(page)
                 ranges = _grid_ranges(page, edges) or last_ranges
             else:
                 ranges = _grid_ranges(page, edges)
@@ -248,58 +309,96 @@ def parse_ps_list_pdf(path: Path, ac_number: int | None = None) -> PsListResult:
                         return nm
                 return None
 
-            anchors = sorted(
-                (w[1], int(w[4])) for w in body
-                if col_of(w[0]) == "part_number" and w[4].strip().isdigit()
-            )
+            anchor_words = sorted(
+                (w for w in body if col_of(w[0]) == "part_number" and w[4].strip().isdigit()),
+                key=lambda w: w[1])
+            anchors = [(w[1], int(w[4])) for w in anchor_words]
             if not anchors:
                 continue
             anchor_ys = [a[0] for a in anchors]
             buckets: list[dict[str, list[tuple[float, float, str]]]] = [{} for _ in anchors]
-            # Cells are top-aligned in most lists but vertically centred in some, where a row's
-            # text starts above its serial number. Measure that lead instead of assuming zero.
-            text_ys = [w[1] for w in body if col_of(w[0]) in ("part_name", "station_name")]
-            leads = []
-            for ay in anchor_ys:
-                above = [ay - y for y in text_ys if 0.0 <= ay - y <= 20.0]
-                if above:
-                    leads.append(min(above))
-            lead = statistics.median(leads) if leads else 0.0
-
-            for x0, y0, x1, y1, text, *_ in body:
-                col = col_of(x0)
-                if col is None or not text.strip():
-                    continue
-                idx = None
-                for i, ay in enumerate(anchor_ys):
-                    if y0 >= ay - ROW_TOLERANCE - lead:
-                        idx = i
+            # y offset per page keeps a row continued across a page break in reading order
+            off = pno * 10_000.0
+            anchor_x = statistics.median((w[0] + w[2]) / 2 for w in anchor_words)
+            bands = _row_bands(page, anchor_x, anchor_ys, header_y + 4.0)
+            if bands is not None:
+                # each word belongs to the bordered row its middle falls in. Text above the first
+                # row continues the previous page's last station; a gap between two rows is a row
+                # cut by an inner line and continues the row above; text below the last row (the
+                # officer's signature) belongs to no station. A tehsil sub-heading printed between
+                # groups of stations sits in such a gap too and is dropped, not attached.
+                regions: dict[int, list] = {}            # -1: above the first row; i: row i and the gap after it
+                for w in body:
+                    col = col_of(w[0])
+                    if col is None or not w[4].strip():
+                        continue
+                    ym = (w[1] + w[3]) / 2
+                    if ym < bands[0][0]:
+                        key = -1
                     else:
-                        break
-                if idx is None:
-                    continue
-                buckets[idx].setdefault(col, []).append((y0, x0, text))
+                        key = max(i for i, b in enumerate(bands) if b[0] <= ym)
+                        if ym >= bands[key][1] and key == len(bands) - 1:
+                            continue
+                    in_gap = key >= 0 and ym >= bands[key][1]
+                    regions.setdefault(key, []).append((w, col, key == -1 or in_gap))
+                for key, items in regions.items():
+                    loose = [(w, col) for w, col, extra in items if extra]
+                    if loose and _is_subheading(" ".join(w[4] for w, _ in loose)):
+                        items = [it for it in items if not it[2]]
+                    target = (carry[2] if carry is not None else None) if key == -1 else buckets[key]
+                    if target is None:
+                        continue
+                    for w, col, _ in items:
+                        if key == -1 and col == "part_number":
+                            continue
+                        target.setdefault(col, []).append((w[1] + off, w[0], w[4]))
+            else:
+                # no usable row borders: cells are top-aligned in most lists but vertically
+                # centred in some, where a row's text starts above its serial number.
+                # Measure that lead instead of assuming zero.
+                text_ys = [w[1] for w in body if col_of(w[0]) in ("part_name", "station_name")]
+                leads = []
+                for ay in anchor_ys:
+                    above = [ay - y for y in text_ys if 0.0 <= ay - y <= 20.0]
+                    if above:
+                        leads.append(min(above))
+                lead = statistics.median(leads) if leads else 0.0
+                for x0, y0, x1, y1, text, *_ in body:
+                    col = col_of(x0)
+                    if col is None or not text.strip():
+                        continue
+                    idx = None
+                    for i, ay in enumerate(anchor_ys):
+                        if y0 >= ay - ROW_TOLERANCE - lead:
+                            idx = i
+                        else:
+                            break
+                    if idx is None:
+                        continue
+                    buckets[idx].setdefault(col, []).append((y0 + off, x0, text))
+            pending.extend((part_no, pno + 1, b) for (_, part_no), b in zip(anchors, buckets))
+            carry = pending[-1]
 
-            for (ay, part_no), b in zip(anchors, buckets):
-                def cell(name: str) -> str | None:
-                    items = b.get(name)
-                    if not items:
-                        return None
-                    return _reading_order(items)
+    for part_no, page_no, b in pending:
+        def cell(name: str) -> str | None:
+            items = b.get(name)
+            if not items:
+                return None
+            return _reading_order(items)
 
-                pname, pname_raw, c1 = _convert(cell("part_name"))
-                sname, sname_raw, c2 = _convert(cell("station_name"))
-                areas, areas_raw, c3 = _convert(cell("areas"))
-                serves, _, c4 = _convert(cell("serves"))
-                result.stations.append(PollingStationRow(
-                    part_number=part_no,
-                    part_name=pname, part_name_raw=pname_raw,
-                    station_name=sname, station_name_raw=sname_raw,
-                    areas=areas, areas_raw=areas_raw,
-                    serves=serves,
-                    source_page=pno + 1,
-                    confidence=round(min(c1, c2, c3, c4), 4),
-                ))
+        pname, pname_raw, c1 = _convert(cell("part_name"))
+        sname, sname_raw, c2 = _convert(cell("station_name"))
+        areas, areas_raw, c3 = _convert(cell("areas"))
+        serves, _, c4 = _convert(cell("serves"))
+        result.stations.append(PollingStationRow(
+            part_number=part_no,
+            part_name=pname, part_name_raw=pname_raw,
+            station_name=sname, station_name_raw=sname_raw,
+            areas=areas, areas_raw=areas_raw,
+            serves=serves,
+            source_page=page_no,
+            confidence=round(min(c1, c2, c3, c4), 4),
+        ))
 
     # Printed sheets repeat a part across page breaks; keep the richest row.
     best: dict[int, PollingStationRow] = {}
