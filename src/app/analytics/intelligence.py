@@ -33,6 +33,7 @@ from ..database.models import (
     AcResult, AssemblyConstituency, District, Election, ElectionResult, Elector,
     ElectoralRoll, PartMapping, PollingStation, SourceFetch, State,
 )
+from ..formatting import indian
 from ..states import BOOTH_STATE, booth_state_id, mapping_state_id, spec
 from .booth import AGE_BANDS, booth_stats, quality_report
 
@@ -53,7 +54,7 @@ SOURCE_LABELS = {
     "ceo_uk_legacy_roll_2003": "CEO Uttarakhand — Electoral Roll 2003 (PDF)",
     "ceo_uk_form20": "CEO Uttarakhand — Form 20 Final Result Sheet (PDF)",
     "ceo_up_form20": "CEO Uttar Pradesh — Form 20 polling-booth-wise result (Excel)",
-    "ceo_tg_form20": "CEO Telangana — Form 20 Final Result Sheet (scanned PDF, OCR)",
+    "ceo_tg_form20": "CEO Telangana — Form 20 Final Result Sheet (scanned PDF, read by OCR)",
     "ceo_up_ps_list_2026": "District Election Officer, Uttar Pradesh — List of Polling Stations (SIR 2026)",
     "eci_statistical_report": "Election Commission of India — Statistical Report, Detailed Results",
 }
@@ -431,7 +432,7 @@ def booth_flags(agg: RecordAggregate | None, *, edition: str,
     where = f" in Part {part_number}" if part_number is not None else ""
     if agg is None or agg.total == 0:
         why = ("The current (SIR-2026) roll is not available from the current public source."
-               if edition == EDITION_CURRENT else "No electoral roll has been ingested for this booth.")
+               if edition == EDITION_CURRENT else "No electoral roll has been loaded for this booth.")
         flags.append(Flag("NO_ELECTORATE", "info", "No electorate data", why))
     else:
         mean = agg.mean_confidence or 0.0
@@ -440,9 +441,9 @@ def booth_flags(agg: RecordAggregate | None, *, edition: str,
         if agg.invalid:
             parts = []
             if agg.duplicates:
-                parts.append(f"{agg.duplicates:,} duplicate record(s)")
+                parts.append(f"{indian(agg.duplicates)} duplicate record(s)")
             if agg.other_invalid:
-                parts.append(f"{agg.other_invalid:,} other validation flag(s) "
+                parts.append(f"{indian(agg.other_invalid)} other validation flag(s) "
                              "(EPIC format / gender / field rules)")
             flags.append(Flag("DATA_QUALITY", "warn", "Data quality review",
                               "; ".join(parts) + f" detected{where}. Records are kept "
@@ -451,7 +452,7 @@ def booth_flags(agg: RecordAggregate | None, *, edition: str,
             flags.append(Flag("LOW_CONFIDENCE", "warn", "Low confidence",
                               f"Mean extraction confidence {mean * 100:.2f}% "
                               f"(threshold {LOW_CONF_BOOTH_MEAN * 100:.0f}%); "
-                              f"{agg.low_conf:,} rows below {LOW_CONF_ROW * 100:.0f}%."))
+                              f"{indian(agg.low_conf)} rows below {LOW_CONF_ROW * 100:.0f}%."))
         if not agg.invalid and not low:
             flags.append(Flag("CLEAN", "good", "Clean",
                               f"0 validation flags, 0 duplicates, mean extraction "
@@ -515,22 +516,22 @@ def booth_health(agg: RecordAggregate | None, *, station_has_provenance: bool,
     n = agg.total if agg else 0
     if n:
         c.append(HealthComponent("Electorate data", 20, 20,
-                                 f"{n:,} elector records extracted from the official roll."))
+                                 f"{indian(n)} elector records extracted from the official roll."))
         q = 20 * max(0.0, 1 - 10 * agg.invalid / n)
         c.append(HealthComponent("Record validation", q, 20,
-                                 f"{agg.invalid:,} of {n:,} records flagged "
+                                 f"{indian(agg.invalid)} of {indian(n)} records flagged "
                                  f"({agg.invalid / n * 100:.2f}%); each 1% flagged costs 2 points."))
         e = 15 * max(0.0, 1 - 5 * agg.low_conf / n)
         c.append(HealthComponent("Extraction confidence", e, 15,
-                                 f"{agg.low_conf:,} rows below {LOW_CONF_ROW * 100:.0f}% confidence "
+                                 f"{indian(agg.low_conf)} rows below {LOW_CONF_ROW * 100:.0f}% confidence "
                                  f"({agg.low_conf / n * 100:.2f}%); each 1% costs 0.75 points."))
         p = 15 * (agg.provenance_complete / n)
         c.append(HealthComponent("Provenance", p, 15,
-                                 f"{agg.provenance_complete:,} of {n:,} records carry source URL, "
+                                 f"{indian(agg.provenance_complete)} of {indian(n)} records carry source URL, "
                                  "document, page, raw text, parser version and method."))
     else:
         c.append(HealthComponent("Electorate data", 0, 20,
-                                 "No elector records for this booth in the current POC."))
+                                 "No elector records are loaded for this booth yet."))
         c.append(HealthComponent("Record validation", 0, 20, "Not assessable — no records."))
         c.append(HealthComponent("Extraction confidence", 0, 15, "Not assessable — no records."))
         c.append(HealthComponent("Provenance", 15 if station_has_provenance else 0, 15,
@@ -544,7 +545,7 @@ def booth_health(agg: RecordAggregate | None, *, station_has_provenance: bool,
     c.append(HealthComponent("Official mapping", ms, 15, {
         "verified": "Official 2003↔current part mapping verified against SIR-2026.",
         "review": "Official mapping exists but needs verification against SIR-2026.",
-        "none": "No official part mapping ingested for this booth.",
+        "none": "No official part mapping is loaded for this booth.",
     }[mapping_status]))
     for comp in c:
         comp.score = round(comp.score, 1)
@@ -712,7 +713,7 @@ def _mapping_status_for_station(st: PollingStation, ac: AssemblyConstituency,
         mine = [m for m in maps if m.from_edition == st.edition
                 and m.from_ac_number == ac.ac_number and m.from_part_number == st.part_number]
         if not mine:
-            return "none", "No official 2003→current mapping ingested for this part.", mine
+            return "none", "No official 2003→current mapping is loaded for this part.", mine
         v = sum(1 for m in mine if m.status == "verified")
         r = sum(1 for m in mine if m.status == "review")
         if v:
@@ -816,8 +817,8 @@ def form20_row_check(columns: list[int] | None, total_valid: int | None,
     if columns is None:
         return "not_backfilled", "Candidate vote columns are not stored, so this row cannot be checked."
     if total_valid is None or sum(columns) != total_valid:
-        printed = f"{total_valid:,}" if total_valid is not None else "not read"
-        return "check_failed", (f"The extracted vote columns (sum {sum(columns):,}) do not reconcile with "
+        printed = f"{indian(total_valid)}" if total_valid is not None else "not read"
+        return "check_failed", (f"The extracted vote columns (sum {indian(sum(columns))}) do not reconcile with "
                                 f"the printed total valid votes ({printed}).")
     if expected_columns and len(columns) != expected_columns:
         return "check_failed", ("One candidate cell is blank/missing, so candidate-column alignment cannot be "
@@ -988,10 +989,53 @@ def ac_result_check(rows: list[AcResult]) -> tuple[bool, str]:
     printed = next((r.printed_ac_total for r in rows if r.printed_ac_total is not None), None)
     total = sum(r.total_votes for r in rows)
     if printed is not None and printed != total:
-        return False, f"Candidate votes sum to {total:,}; the report prints {printed:,}."
+        return False, f"Candidate votes sum to {indian(total)}; the report prints {indian(printed)}."
     return True, ("Candidate votes add up to the constituency total printed in the ECI report."
                   if printed is not None else
                   "General + postal votes equal the total for every candidate in the ECI report.")
+
+
+def _ocr_notes(db: Session, code: str, ac_number: int | str = "%"):
+    return db.scalars(select(SourceFetch.note).where(
+        SourceFetch.source == "ceo_tg_form20",
+        SourceFetch.note.like(f"form20 parser=% state={code} year=% ac={ac_number} status=%"))
+        .order_by(SourceFetch.id))
+
+
+_OCR_NOTE = re.compile(r" year=(\d+) ac=(\d+) status=(\w+)(?::\w+)? booths=(\d+) of=(\d+)")
+
+
+def state_ocr_coverage(db: Session, state_id: int | None = None) -> dict | None:
+    """Booth rows read by OCR across a state: {"years", "acs", "read", "of"} from the
+    loader's latest record per constituency-year (blocked sheets count their booths as
+    not read); None when no sheet was read by OCR."""
+    st = db.get(State, scope_state_id(db, state_id))
+    if st is None:
+        return None
+    latest: dict[tuple[int, int], tuple[str, int, int]] = {}
+    for note in _ocr_notes(db, st.state_code):
+        m = _OCR_NOTE.search(note or "")
+        if m:
+            latest[(int(m.group(1)), int(m.group(2)))] = (m.group(3), int(m.group(4)), int(m.group(5)))
+    if not latest:
+        return None
+    stored = {k: v for k, v in latest.items() if v[0] == "stored"}
+    return {"years": sorted({y for y, _ in latest}), "acs": len(stored),
+            "read": sum(v[1] for v in stored.values()), "of": sum(v[2] for v in latest.values())}
+
+
+def ocr_coverage(db: Session, ac: AssemblyConstituency) -> dict[int, tuple[int, int]]:
+    """year -> (booths stored, booths on the sheet) for Form 20 sheets read by OCR, from the
+    loader's own record of what it read (the latest record per year wins)."""
+    st = db.get(State, _ac_state_id(db, ac))
+    if st is None or ac.delimitation != DELIM_CURRENT:
+        return {}
+    latest: dict[int, tuple[str, int, int]] = {}
+    for note in _ocr_notes(db, st.state_code, ac.ac_number):
+        m = _OCR_NOTE.search(note or "")
+        if m:
+            latest[int(m.group(1))] = (m.group(3), int(m.group(4)), int(m.group(5)))
+    return {y: (n, of) for y, (status, n, of) in latest.items() if status == "stored"}
 
 
 def ac_level_results(db: Session, ac: AssemblyConstituency) -> list[AcElectionView]:
@@ -1006,14 +1050,82 @@ def ac_level_results(db: Session, ac: AssemblyConstituency) -> list[AcElectionVi
     by_year: dict[int, list[AcResult]] = {}
     for r, e in rows:
         by_year.setdefault(e.election_year, []).append(r)
-    out = []
-    for year, rs in sorted(by_year.items()):
-        ok, note = ac_result_check(rs)
-        rs = sorted(rs, key=lambda r: -r.total_votes)
-        out.append(AcElectionView(year=year, ac_number=rs[0].ac_number, ac_name=rs[0].ac_name,
-                                  electors=rs[0].total_electors, candidates=rs, verified=ok, note=note,
-                                  source_url=rs[0].source_url, source_file=rs[0].source_file))
-    return out
+    return [_election_view(year, rs) for year, rs in sorted(by_year.items())]
+
+
+def _election_view(year: int, rs: list[AcResult]) -> AcElectionView:
+    ok, note = ac_result_check(rs)
+    rs = sorted(rs, key=lambda r: -r.total_votes)
+    return AcElectionView(year=year, ac_number=rs[0].ac_number, ac_name=rs[0].ac_name,
+                          electors=rs[0].total_electors, candidates=rs, verified=ok, note=note,
+                          source_url=rs[0].source_url, source_file=rs[0].source_file)
+
+
+@dataclass
+class SeatTally:
+    year: int
+    seats: list[tuple[str, int]]        # (party, constituencies won), most first; verified results only
+    verified: int                       # constituency results counted
+    unverified: int                     # results left out because they fail the check
+
+
+@dataclass
+class StateResultRow:
+    av: "AcAvailability"
+    by_year: dict[int, AcElectionView]  # constituency results (ECI report)
+
+    @property
+    def latest(self) -> AcElectionView | None:
+        return self.by_year[max(self.by_year)] if self.by_year else None
+
+
+@dataclass
+class StateResults:
+    years: list[int]                    # every election with any stored result in the state
+    ac_years: list[int]                 # elections with constituency results
+    rows: list[StateResultRow]          # one per current AC, by number
+    tallies: list[SeatTally]            # per year with constituency results, oldest first
+    unlinked: int                       # constituency results not tied to a current AC
+
+    def row_for(self, ac_id: int) -> StateResultRow | None:
+        return next((r for r in self.rows if r.av.ac.id == ac_id), None)
+
+
+def state_results_overview(db: Session, state_id: int | None = None,
+                           availability: list["AcAvailability"] | None = None) -> StateResults:
+    """Every current AC of a state with its result in each election: the constituency result
+    from the ECI report where loaded (checked by `ac_result_check`, as on the constituency
+    page) and the years with Form 20 booth rows. Seat tallies count verified results only.
+    `availability` (the state's `all_availability`) saves recomputing it."""
+    sid = scope_state_id(db, state_id)
+    avs = [a for a in (availability if availability is not None else all_availability(db, state_id=sid))
+           if a.is_current]
+    groups: dict[tuple[int, int], list[AcResult]] = {}
+    unlinked: set[tuple[int, int]] = set()
+    for r, year in db.execute(select(AcResult, Election.election_year)
+                              .join(Election, AcResult.election_id == Election.id)
+                              .where(Election.state == _scope_state_name(db, sid))):
+        if r.ac_id is None:
+            unlinked.add((year, r.ac_number))
+        else:
+            groups.setdefault((r.ac_id, year), []).append(r)
+    views: dict[int, dict[int, AcElectionView]] = {}
+    for (ac_id, year), rs in groups.items():
+        views.setdefault(ac_id, {})[year] = _election_view(year, rs)
+    rows = [StateResultRow(a, dict(sorted(views.get(a.ac.id, {}).items())))
+            for a in sorted(avs, key=lambda a: a.ac.ac_number)]
+    ac_years = sorted({y for r in rows for y in r.by_year})
+    tallies = []
+    for y in ac_years:
+        counted = [r.by_year[y] for r in rows if y in r.by_year]
+        won: dict[str, int] = {}
+        for v in counted:
+            if v.verified and v.winner:
+                won[v.winner.party or "—"] = won.get(v.winner.party or "—", 0) + 1
+        ok = sum(1 for v in counted if v.verified)
+        tallies.append(SeatTally(y, sorted(won.items(), key=lambda kv: (-kv[1], kv[0])), ok, len(counted) - ok))
+    years = sorted(set(ac_years) | {y for a in avs for y in a.result_years})
+    return StateResults(years, ac_years, rows, tallies, len(unlinked))
 
 
 @dataclass
@@ -1123,8 +1235,8 @@ def _historical_status(ac: AssemblyConstituency, st: PollingStation,
                             "(matching by part number would be wrong).")
     if st.edition == EDITION_2003:
         return ("none", "No Form 20 result for the 2003-delimitation constituency is "
-                        "ingested in the current POC.")
-    return "none", "No historical Form 20 result ingested for this constituency."
+                        "loaded yet.")
+    return "none", "No historical Form 20 result is loaded for this constituency."
 
 
 def build_booth_rows(db: Session, ac: AssemblyConstituency,
@@ -1356,7 +1468,7 @@ def ac_changes(db: Session, ac_id: int) -> tuple[AssemblyConstituency, District,
 
 # --- data quality ---------------------------------------------------------
 def _plural(n: int, noun: str) -> str:
-    return f"{n:,} {noun}{'' if n == 1 else 's'}"
+    return f"{indian(n)} {noun}{'' if n == 1 else 's'}"
 
 
 @dataclass
@@ -1402,7 +1514,7 @@ def quality_overview(db: Session, backend: str, state_id: int | None = None,
                                 f"rules); {_plural(s.invalid_rows, 'flag')} in total.", href))
         if s.low_confidence_rows:
             level = "warn" if s.low_confidence_rows / max(s.total_electors, 1) > LOW_CONF_BOOTH_SHARE else "info"
-            alerts.append(Alert(level, scope, f"{s.low_confidence_rows:,} low-confidence rows",
+            alerts.append(Alert(level, scope, f"{indian(s.low_confidence_rows)} low-confidence rows",
                                 "At least one legacy-font character could not be decoded; "
                                 "scored honestly rather than guessed.", href))
         if s.serial_outliers:
@@ -1414,7 +1526,7 @@ def quality_overview(db: Session, backend: str, state_id: int | None = None,
                                 "Serials not printed in the source roll — normally deleted electors.", href))
         if clean:
             alerts.append(Alert("good", scope, "Clean extraction",
-                                f"{s.total_electors:,} records, 0 validation flags, 0 duplicates, "
+                                f"{indian(s.total_electors)} records, 0 validation flags, 0 duplicates, "
                                 f"mean confidence {s.mean_confidence * 100:.2f}%.", href))
 
     mapping = mapping_summary_all(db, sid)
@@ -1519,6 +1631,11 @@ class AcAvailability:
         return self.ac.delimitation == DELIM_CURRENT
 
     @property
+    def election_years(self) -> list[int]:
+        """Every election with a stored result here, booth-level (Form 20) or constituency-level."""
+        return sorted(set(self.result_years) | set(self.ac_result_years))
+
+    @property
     def mapping_status(self) -> str:
         if not (self.mapping_verified or self.mapping_review):
             return "none"
@@ -1535,33 +1652,37 @@ class AcAvailability:
         mapping = {
             "verified": ("yes", relationships),
             "partial": ("partial", relationships),
-            "none": ("no", "No official mapping ingested"),
+            "none": ("no", "No official mapping loaded"),
         }[self.mapping_status]
-        results = (("yes", f"{years} Form 20 — {self.result_records:,} booth records")
-                   if self.result_records else ("no", "Not available in current POC"))
+        results = (("yes", f"{years} Form 20 — {indian(self.result_records)} booth records")
+                   if self.result_records else ("no", "Not available yet"))
+        if self.ac_result_years:
+            ac_years = ", ".join(map(str, self.ac_result_years))
+            results = ("yes", f"{ac_years} constituency results (ECI)"
+                              + (f"; {results[1]}" if self.result_records else ""))
         if self.is_current:
             return [
                 {"label": "Current polling stations",
-                 **({"state": "yes", "detail": f"{self.current_stations:,} stations (SIR-2026)"}
-                    if self.current_stations else {"state": "no", "detail": "Not yet ingested"})},
+                 **({"state": "yes", "detail": f"{indian(self.current_stations)} stations (SIR-2026)"}
+                    if self.current_stations else {"state": "no", "detail": "Not loaded yet"})},
                 {"label": "Current electoral roll",
-                 **({"state": "yes", "detail": f"{self.current_roll_records:,} records"}
+                 **({"state": "yes", "detail": f"{indian(self.current_roll_records)} records"}
                     if self.current_roll_records else
                     {"state": "no", "detail": "Not available from the current public source"})},
                 {"label": "Historical electoral roll", "state": "no",
-                 "detail": f"Held under {linked}" if linked else "Not available in current POC"},
+                 "detail": f"Held under {linked}" if linked else "Not available yet"},
                 {"label": "Historical results", "state": results[0], "detail": results[1]},
                 {"label": "Booth mapping", "state": mapping[0], "detail": mapping[1]},
             ]
         return [
             {"label": "Historical electoral roll",
              **({"state": "yes", "detail": f"{', '.join(map(str, self.roll_years))} roll — "
-                                          f"{self.historical_roll_records:,} records, "
+                                          f"{indian(self.historical_roll_records)} records, "
                                           f"{self.historical_parts_with_roll} parts"}
-                if self.historical_roll_records else {"state": "no", "detail": "Not ingested"})},
+                if self.historical_roll_records else {"state": "no", "detail": "Not loaded"})},
             {"label": "Historical results", "state": results[0],
              "detail": results[1] if self.result_records else
-             f"No result ingested for the {self.ac.delimitation} delimitation"},
+             f"No result loaded for the {self.ac.delimitation} delimitation"},
             {"label": "Booth mapping", "state": mapping[0], "detail": mapping[1]},
             {"label": "Current constituency", "state": "partial" if linked else "no",
              "detail": f"Linked by official mapping to {linked}" if linked
@@ -1734,12 +1855,20 @@ def _cached_checks(db: Session, state_id: int | None) -> list[ResultCheck]:
 
 
 def ac_observations(av: AcAvailability, summaries: list[ElectionSummary],
-                    roll_stats: list | None = None) -> list[str]:
+                    roll_stats: list | None = None,
+                    ac_elections: list[AcElectionView] | None = None) -> list[str]:
     """At most four plain-language facts, each computed from stored data."""
     obs: list[str] = []
+    won = [(e.year, e.winner) for e in ac_elections or [] if e.verified and e.winner]
+    if won:
+        obs.append("Winning party: " + " · ".join(f"{y} {w.party or w.candidate_name}" for y, w in won) + ".")
+        latest = next(e for e in reversed(ac_elections) if e.verified and e.winner)
+        if latest.margin is not None:
+            obs.append(f"In {latest.year} {latest.winner.candidate_name} won by {indian(latest.margin)} votes"
+                       + (f" ({latest.margin_pct:.1f}% of votes polled)." if latest.margin_pct is not None else "."))
     if not av.is_current and roll_stats:
         years = ", ".join(map(str, av.roll_years))
-        obs.append(f"{av.historical_roll_records:,} elector records were extracted from "
+        obs.append(f"{indian(av.historical_roll_records)} elector records were extracted from "
                    f"{len(roll_stats)} parts of the {years} electoral roll.")
         clean = sum(1 for s in roll_stats if not s.invalid_rows and not s.serial_outliers)
         obs.append(f"{clean} of {len(roll_stats)} parts are clean; {len(roll_stats) - clean} "
@@ -1749,23 +1878,23 @@ def ac_observations(av: AcAvailability, summaries: list[ElectionSummary],
             obs.append(f"{_plural(dups, 'duplicate record')} were found in the published roll "
                        "and kept for review, not deleted.")
     for e in summaries[:1]:
-        obs.append(f"{e.booths:,} polling-station result records are available for the "
+        obs.append(f"{indian(e.booths)} polling-station result records are available for the "
                    f"{e.year} election.")
         if e.zero_margin:
             obs.append(f"{_plural(e.zero_margin, 'historical booth')} recorded a zero vote margin "
                        "(the top two vote columns are tied).")
         elif e.narrowest:
-            obs.append(f"The narrowest historical booth margin is {e.narrowest.margin.margin:,} "
+            obs.append(f"The narrowest historical booth margin is {indian(e.narrowest.margin.margin)} "
                        f"votes (Part {e.narrowest.part_number}).")
-        obs.append(f"{e.sum_check_pass:,} of {e.booths:,} result rows pass the vote-column "
+        obs.append(f"{indian(e.sum_check_pass)} of {indian(e.booths)} result rows pass the vote-column "
                    "consistency check.")
     if av.is_current and not av.current_roll_records:
         obs.append("Current 2026 voter-roll data is not available from the current public source.")
     if not av.is_current and not av.result_records:
-        obs.append(f"No election result is ingested for the {av.ac.delimitation} delimitation.")
-    if av.is_current and not av.current_stations and not av.result_records:
+        obs.append(f"No election result is loaded for the {av.ac.delimitation} delimitation.")
+    if av.is_current and not av.current_stations and not av.election_years:
         obs.insert(0, "Only this constituency's official identity (number, name, district) is "
-                      "stored; booth-level data has not been ingested yet.")
+                      "stored; booth-level data has not been loaded yet.")
     return obs[:4]
 
 
@@ -1869,7 +1998,7 @@ def mapping_table(db: Session, ac_id: int):
             if (acn, st.part_number) not in mapped:
                 rows.append(MappingRow(acn, acname, st.part_number, st.id, st.area_description,
                                        None, None, None, "Not Mapped",
-                                       "No official village mapping ingested for this part."))
+                                       "No official village mapping is loaded for this part."))
     order = {"Verified": 0, "Review Required": 1, "Not Mapped": 2}
     rows.sort(key=lambda r: (r.hist_ac_number, r.hist_part, order[r.status]))
     return ac, district, rows, mapping_summary(rows)
@@ -1956,7 +2085,7 @@ def search(db: Session, q: str, limit: int = 60, state_id: int | None = None) ->
             f"AC {a.ac_number} {a.ac_name} · {d.district_name} · "
             + ("current 2026" if current else "historical electoral roll 2003"),
             f"/station/{s.id}",
-            f"{agg.total:,} electors (2003 roll)" if agg
+            f"{indian(agg.total)} electors (2003 roll)" if agg
             else "Current voter roll: not available from the current public source"), s.ac_id)
 
     if number is not None:
@@ -1974,7 +2103,7 @@ def search(db: Session, q: str, limit: int = 60, state_id: int | None = None) ->
                 f"AC {r.ac_number} {a.ac_name if a else ''} · {d.district_name if d else ''} · "
                 f"historical result {e.election_year} ({e.election_year} numbering)",
                 f"/result/{r.id}",
-                f"{r.total_votes:,} total votes" if r.total_votes is not None else ""), ac_id)
+                f"{indian(r.total_votes)} total votes" if r.total_votes is not None else ""), ac_id)
 
     ranked.sort(key=lambda x: x[0])
     return [h for _, h in ranked][:limit]

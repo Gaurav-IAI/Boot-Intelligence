@@ -2,39 +2,42 @@
 {% import "_macros.html" as ui %}
 {% block title %}Constituencies{% endblock %}
 {% block body %}
-<h1>CONSTITUENCIES</h1>
-<div class="subhead">{{ s.acs_current }} current assembly constituencies across {{ s.districts }} districts
-  {% if historical %}· {{ historical|length }} historical constituency record{{ 's' if historical|length > 1 }}{% endif %}</div>
+{% set sub = s.acs_current ~ ' current assembly constituencies across ' ~ s.districts ~ ' districts' ~ ((' · ' ~ historical|length ~ ' historical constituency record' ~ ('s' if historical|length > 1 else '')) if historical else '') %}
+{% call ui.page_head('CONSTITUENCIES', None, sub) %}
+  <a class="btn" href="/results">Election results</a>
+{% endcall %}
 
-<div class="panel mt"><p>The current (2026) electoral roll is not available from the current public source for any
-  constituency. Booth-level data is shown where it has been ingested.</p></div>
-
-{% for r in s.district_rows if by_district.get(r.district.id) %}
 <section>
-  <div class="sh"><h2><a href="/district/{{ r.district.id }}">{{ r.district.district_name }}</a></h2>
-    <span class="muted">{{ by_district[r.district.id]|length }} constituencies</span></div>
   <div class="tablecard">
-  <table>
-    <thead><tr><th class="num" style="width:80px">AC</th><th>Name</th><th class="num">Polling stations</th><th>Available data</th></tr></thead>
-    <tbody>
-    {% for a in by_district[r.district.id] %}
-    <tr data-href="/ac/{{ a.ac.id }}">
-      <td class="num"><strong>{{ a.ac.ac_number }}</strong></td>
-      <td><a href="/ac/{{ a.ac.id }}">{{ a.ac.ac_name }}</a> <span class="muted small">{{ a.ac.ac_name_local or '' }}</span></td>
-      <td class="num">{{ a.current_stations|n if a.current_stations else '—' }}</td>
-      <td><div class="chips">
-        {% if a.current_stations %}{{ ui.chip('good', 'Current polling stations') }}{% endif %}
-        {% if a.result_records %}{{ ui.chip('good', 'Historical results ' ~ a.result_years|join(', ')) }}{% elif a.ac_result_years %}{{ ui.chip('good', 'Constituency results ' ~ a.ac_result_years|join(', ')) }}{% endif %}
-        {% if a.mapping_status != 'none' %}{{ ui.chip('warn', 'Booth mapping (partial)') }}{% endif %}
-        {% if not (a.current_stations or a.result_records) %}<span class="muted small">Constituency record only</span>{% endif %}
-      </div></td>
-    </tr>
-    {% endfor %}
-    </tbody>
-  </table>
+    <div class="tools" data-for="acs">
+      <input type="search" placeholder="Search name, number or district" aria-label="Search constituencies">
+      <select data-filter="district" aria-label="District"><option value="">All districts</option>
+        {% for d in districts %}<option value="{{ d|replace(' ', '_') }}">{{ d }}</option>{% endfor %}</select>
+      <span class="count" data-count></span>
+    </div>
+    <div class="scroll-y" style="max-height:680px">
+    <table class="sortable" id="acs">
+      <thead><tr><th class="num" data-type="num" style="width:64px">AC</th><th data-type="text">Constituency</th><th data-type="text">District</th>
+        <th class="num" data-type="num">Polling stations</th><th data-type="text">Latest winner</th><th data-type="text">Results</th></tr></thead>
+      <tbody>
+      {% for a in current|sort(attribute='ac.ac_number') %}{% set w = latest.get(a.ac.id) %}
+      <tr data-href="/ac/{{ a.ac.id }}" data-district="{{ a.district.district_name|replace(' ', '_') }}"
+          data-search="{{ (a.ac.ac_number|string ~ ' ' ~ a.ac.ac_name ~ ' ' ~ (a.ac.ac_name_local or '') ~ ' ' ~ a.district.district_name)|lower }}">
+        <td class="num" data-v="{{ a.ac.ac_number }}"><strong>{{ a.ac.ac_number }}</strong></td>
+        <td><a href="/ac/{{ a.ac.id }}"><strong>{{ a.ac.ac_name }}</strong></a>{% if a.ac.ac_name_local %}<span class="sub">{{ a.ac.ac_name_local }}</span>{% endif %}</td>
+        <td><a href="/district/{{ a.district.id }}" style="color:inherit">{{ a.district.district_name }}</a></td>
+        <td class="num" data-v="{{ a.current_stations or '' }}">{{ a.current_stations|n if a.current_stations else '—' }}</td>
+        <td data-v="{{ w.winner.party if w and w.winner else '~' }}">{% if w and w.winner %}{{ ui.party(w.winner.party) }}<span class="sub">{{ w.year }} · {{ w.winner.candidate_name }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td class="small">{{ a.election_years|join(', ') if a.election_years else '—' }}
+          {% if a.mapping_status != 'none' %}<span class="sub"><a href="/ac/{{ a.ac.id }}/changes">Booth mapping (partial)</a></span>{% endif %}
+          {% if not (a.current_stations or a.election_years) %}<span class="sub">Constituency record only</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
   </div>
 </section>
-{% endfor %}
 
 {% if historical %}
 <section>

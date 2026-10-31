@@ -1,30 +1,45 @@
-{# Constituency-level results (ECI statistical report). Expects `ac_elections` and `ui`. #}
-{% for e in ac_elections %}
-{% set w = e.winner %}{% set r2 = e.runner_up %}
+{# One constituency result (ECI statistical report). Expects `e`, `ui`; optional `booth_years`
+   (years with Form 20 booth rows on the same page). #}
+{% set big = [] %}{% set small = [] %}
+{% for c in e.candidates %}{% if c.party == 'NOTA' or (e.total and c.total_votes / e.total >= 0.01) %}{% set _ = big.append(c) %}{% else %}{% set _ = small.append(c) %}{% endif %}{% endfor %}
 <section id="ac-result-{{ e.year }}">
-  <div class="sh"><h2>{{ e.year }} Assembly election — constituency result</h2>
-    {{ ui.ctx('hist', 'Historical result — ' ~ e.year) }}</div>
-  <p class="lede" style="margin:0 0 12px">Candidate-wise votes for the whole constituency, from the Election
-    Commission of India's statistical report. Booth-level (Form 20) figures are not available for this election.</p>
-  <div class="cards">
-    {{ ui.kpi(w.candidate_name if w else '—', 'Winner', (w.party ~ ' · ' ~ (w.total_votes|n) ~ ' votes') if w else None) }}
-    {{ ui.kpi(r2.candidate_name if r2 else '—', 'Runner-up', (r2.party ~ ' · ' ~ (r2.total_votes|n) ~ ' votes') if r2 else None) }}
-    {{ ui.kpi(e.margin|n if e.margin is not none else '—', 'Winning margin', (e.margin_pct|pct ~ ' of votes polled') if e.margin_pct is not none else None) }}
-    {{ ui.kpi(e.turnout_pct|pct if e.turnout_pct is not none else '—', 'Turnout', (e.total|n ~ ' of ' ~ (e.electors|n) ~ ' electors') if e.electors else None) }}
+  <div class="card">
+    <div class="sh" style="margin-bottom:4px"><h3 style="margin:0">{{ e.year }} Assembly election — constituency result</h3>
+      <span>{% if e.verified %}{{ ui.chip('good', 'Verified', e.note) }}{% else %}{{ ui.chip('warn', 'Review required', e.note) }}{% endif %}</span></div>
+    <p class="facts">{% if e.margin is not none %}Margin <b>{{ e.margin|n }}</b>{% if e.margin_pct is not none %} ({{ e.margin_pct|pct }}){% endif %} · {% endif %}{% if e.turnout_pct is not none %}Turnout <b>{{ e.turnout_pct|pct }}</b> · {% endif %}<b>{{ e.total|n }}</b> votes{% if e.electors %} of <b>{{ e.electors|n }}</b> electors{% endif %}</p>
+    <div class="sharelist mt">
+    {% for c in big %}{% set share = (c.total_votes / e.total * 100) if e.total else 0 %}
+      <div class="share{{ ' win' if loop.first }}" title="{{ c.candidate_name }} ({{ party_name(c.party) }}): {{ c.total_votes|n }} votes, {{ share|pct }}">
+        <div class="who"><b>{{ c.candidate_name }}</b>{{ ui.party(c.party) }}{% if loop.first %} <span class="chip plain" style="padding:0 8px;font-size:11.5px">Winner</span>{% endif %}</div>
+        <div class="track"><span class="fill" style="width:{{ share }}%;background:{{ party_color(c.party) }}"></span></div>
+        <div class="amt">{{ share|pct }}<small>{{ c.total_votes|n }}</small></div>
+      </div>
+    {% endfor %}
+    {% if small %}{% set rest = small|sum(attribute='total_votes') %}{% set share = (rest / e.total * 100) if e.total else 0 %}
+      <div class="share" title="{{ small|length }} other candidates, each under 1%: {{ rest|n }} votes">
+        <div class="who"><b>Others</b><span class="muted small">{{ small|length }} candidates, each under 1%</span></div>
+        <div class="track"><span class="fill" style="width:{{ share }}%;background:#c4cad3"></span></div>
+        <div class="amt">{{ share|pct }}<small>{{ rest|n }}</small></div>
+      </div>
+    {% endif %}
+    </div>
+    <p class="muted small mt" style="margin-bottom:0">Share of all votes counted, postal votes included. Source: {{ ui.term('ECI') }}
+      statistical report.{% if e.year in (booth_years or []) %} Polling-station ({{ ui.term('Form 20') }}) results for
+      {{ e.year }} follow below.{% else %} No polling-station results are available for {{ e.year }}.{% endif %}</p>
   </div>
-  <div class="mt">{% if e.verified %}{{ ui.chip('good', 'Verified', e.note) }}{% else %}{{ ui.chip('warn', 'Review required', e.note) }}{% endif %}
-    <span class="muted small">{{ e.note }}</span></div>
-  <div class="tablecard mt">
-    <div class="scroll-y short">
+
+  <details class="prov mt">
+    <summary>All {{ e.candidates|length }} candidates — age, category, machine and postal votes, source</summary>
+    <div class="inner">
     <table>
-      <thead><tr><th>Candidate</th><th>Party</th><th>Symbol</th><th class="num">General</th><th class="num">Postal</th>
-        <th class="num">Total votes</th><th class="num">Share</th></tr></thead>
+      <thead><tr><th>Candidate</th><th>Party</th><th>Symbol</th><th class="num">{{ ui.term('General', 'Machine (EVM)') }}</th>
+        <th class="num">{{ ui.term('Postal') }}</th><th class="num">Total votes</th><th class="num">Share (report)</th></tr></thead>
       <tbody>
       {% for c in e.candidates %}
       <tr>
         <td>{% if loop.first %}<strong>{{ c.candidate_name }}</strong>{% else %}{{ c.candidate_name }}{% endif %}
-          {% if c.sex or c.age %}<span class="muted small">{{ c.sex or '' }}{% if c.age %}, {{ c.age }}{% endif %}{% if c.category %} · {{ c.category }}{% endif %}</span>{% endif %}</td>
-        <td>{{ c.party or '—' }}</td>
+          {% if c.sex or c.age %}<span class="sub">{{ c.sex or '' }}{% if c.age %}, {{ c.age }}{% endif %}{% if c.category %} · {{ c.category }}{% endif %}</span>{% endif %}</td>
+        <td>{{ ui.party(c.party) }}</td>
         <td class="muted small">{{ c.symbol or '' }}</td>
         <td class="num">{{ c.general_votes|n if c.general_votes is not none else '—' }}</td>
         <td class="num">{{ c.postal_votes|n if c.postal_votes is not none else '—' }}</td>
@@ -34,15 +49,12 @@
       {% endfor %}
       </tbody>
     </table>
-    </div>
-  </div>
-  <details class="prov mt">
-    <summary>View data provenance</summary>
-    <div class="inner"><dl class="kv">
+    <dl class="kv mt">
+      <dt>Check</dt><dd>{{ e.note }}</dd>
       <dt>Source</dt><dd>{{ source_label('eci_statistical_report') }}</dd>
       <dt>Document</dt><dd><code>{{ e.source_file }}</code></dd>
       <dt>Source URL</dt><dd><code>{{ e.source_url }}</code></dd>
-    </dl></div>
+    </dl>
+    </div>
   </details>
 </section>
-{% endfor %}

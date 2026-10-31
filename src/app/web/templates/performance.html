@@ -2,81 +2,109 @@
 {% import "_macros.html" as ui %}
 {% block title %}Historical results · {{ ac_label(ac) }}{% endblock %}
 {% block body %}
-<h1>{% if ac.delimitation == 'current' %}AC {{ ac.ac_number }} — {{ ac.ac_name }}{% else %}Historical AC {{ ac.ac_number }} — {{ ac.ac_name }} ({{ ac.delimitation }}){% endif %}</h1>
-<div class="subhead">{{ district.district_name }} · <a href="/ac/{{ ac.id }}">Constituency overview</a></div>
-
-{% include "_ac_results.html" %}
+{% set booth_years = summaries|map(attribute='year')|list %}
+{% set booth_counts = {} %}{% for e in summaries %}{% set _ = booth_counts.update({e.year: e.booths}) %}{% endfor %}
+{% set years = (ac_elections|map(attribute='year')|list + booth_years)|unique|sort|list %}
+{% set title = ('AC ' ~ ac.ac_number ~ ' — ' ~ ac.ac_name) if ac.delimitation == 'current' else ('Historical AC ' ~ ac.ac_number ~ ' — ' ~ ac.ac_name ~ ' (' ~ ac.delimitation ~ ')') %}
+{% call ui.page_head(title, None, district.district_name ~ ' · historical election results', 'Election results') %}
+  <a class="btn" href="/ac/{{ ac.id }}">Constituency overview</a>
+  <a class="btn" href="/results">All constituencies' results</a>
+{% endcall %}
 
 {% if not summaries and not ac_elections %}
 <section>
-  <div class="panel"><p>No historical election results are available for this constituency in the current POC.
-    {% if ac.delimitation != 'current' %}Results in this POC belong to elections held under the current delimitation,
+  <div class="panel"><p>No historical election results are available for this constituency yet.
+    {% if ac.delimitation != 'current' %}Results here belong to elections held under the current delimitation,
     so they are never attached to a {{ ac.delimitation }} constituency with the same number.{% endif %}</p></div>
 </section>
-{% endif %}
-
-{% for e in summaries %}
+{% else %}
 <section>
-  <div class="sh"><h2>HISTORICAL RESULT — {{ e.year }}</h2><span class="muted small">Source: CEO {{ current_state.state_name }} — Form 20</span></div>
-  <div class="panel hist"><p>Results retain the original {{ e.year }} polling-station numbering. They are not
-    automatically assigned to current 2026 polling stations.</p></div>
+  {% include "_trend.html" %}
+  <div data-tabs data-default="election-{{ years|last }}">
+    {% if years|length > 1 %}
+    <div class="tablist" role="tablist" aria-label="Election year">
+      {% for y in years %}<button type="button" role="tab" id="tab-{{ y }}" aria-controls="election-{{ y }}">{{ y }}</button>{% endfor %}
+    </div>
+    {% endif %}
+    {% for y in years %}
+    <div role="tabpanel" id="election-{{ y }}" aria-labelledby="tab-{{ y }}">
+    {% for e in ac_elections if e.year == y %}{% include "_ac_results.html" %}{% endfor %}
+    {% for e in summaries if e.year == y %}
+    <section>
+      <div class="sh"><h2>HISTORICAL RESULT — {{ e.year }} · polling stations</h2><span class="muted small">Source: CEO {{ current_state.state_name }} — {{ ui.term('Form 20') }}</span></div>
+      <div class="panel hist"><p>Results retain the original {{ e.year }} polling-station numbering. They are not
+        automatically assigned to current 2026 polling stations.</p></div>
+      {% set cov = coverage.get(e.year) if coverage else None %}
+      {% if cov %}
+      <div class="panel warn mt"><p><strong>Partial: {{ cov[0]|n }} of {{ cov[1]|n }} booths.</strong> This result sheet is a
+        scan. Each booth row was read by OCR and is shown only where its digits reconcile with the sheet's own printed
+        totals (candidate votes = total valid votes, and valid + rejected + NOTA = total). The other
+        {{ (cov[1] - cov[0])|n }} booths could not be read reliably and are left out, so any figure on this page covers the
+        booths shown only. Constituency totals are in the result card above. Candidate names are attached to vote columns
+        only where the sheet's printed column totals equal that candidate's votes in the ECI statistical report.</p></div>
+      {% endif %}
 
-  <div class="cards mt">
-    {{ ui.kpi(e.booths|n, 'Result records', 'Form 20, polling-station level') }}
-    {{ ui.kpi(e.sum_check_pass|n, 'Vote-sum verified', 'vote columns reconcile with the printed sheet', False, 'good') }}
-    {{ ui.kpi(e.needs_review|n, 'Requires review', ('Part ' ~ e.sum_check_fail|join(', ')) if e.sum_check_fail else 'none', False, 'warn' if e.needs_review else '') }}
-    {{ ui.kpi(e.zero_margin|n, 'Zero-margin result' ~ ('' if e.zero_margin == 1 else 's'), 'top two vote columns tied') }}
-  </div>
+      <div class="cards mt">
+        {{ ui.kpi(e.booths|n, 'Result records', 'Form 20, polling-station level') }}
+        {{ ui.kpi(e.sum_check_pass|n, 'Vote-sum verified', 'vote columns reconcile with the printed sheet', False, 'good') }}
+        {{ ui.kpi(e.needs_review|n, 'Requires review', ('Part ' ~ e.sum_check_fail|join(', ')) if e.sum_check_fail else 'none', False, 'warn' if e.needs_review else '') }}
+        {{ ui.kpi(e.zero_margin|n, 'Zero-margin result' ~ ('' if e.zero_margin == 1 else 's'), 'top two vote columns tied') }}
+      </div>
 
-  {% set flagged = results|selectattr('year', 'equalto', e.year)|rejectattr('verified')|list %}
-  {% if flagged %}
-  <div class="panel warn mt">
-    {% for r in flagged %}
-    <p><strong>⚠ <a href="/result/{{ r.id }}">Part {{ r.part_number }}</a> — review required.</strong> {{ r.reliability_note }}
-      Candidate/party interpretation withheld.</p>
+      {% set flagged = results|selectattr('year', 'equalto', e.year)|rejectattr('verified')|list %}
+      {% if flagged %}
+      <div class="panel warn mt">
+        {% for r in flagged %}
+        <p><strong>⚠ <a href="/result/{{ r.id }}">Part {{ r.part_number }}</a> — review required.</strong> {{ r.reliability_note }}
+          Candidate/party interpretation withheld.</p>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <div class="tablecard mt">
+        <div class="tools" data-for="res{{ e.year }}">
+          <input type="search" placeholder="Search part number or polling station" aria-label="Search booths">
+          <span class="lbl">Sort</span>
+          <button class="btn on" data-sort-table="res{{ e.year }}" data-sort-col="0" data-sort-dir="asc">Part number</button>
+          <button class="btn" data-sort-table="res{{ e.year }}" data-sort-col="2" data-sort-dir="desc">Highest total votes</button>
+          <button class="btn" data-sort-table="res{{ e.year }}" data-sort-col="5" data-sort-dir="asc">Narrowest margin</button>
+          <button class="btn" data-sort-table="res{{ e.year }}" data-sort-col="5" data-sort-dir="desc">Largest margin</button>
+          <span class="count" data-count></span>
+        </div>
+        <div class="scroll-y">
+        <table class="sortable" id="res{{ e.year }}">
+          <thead><tr><th class="num" data-type="num" style="width:70px">{{ ui.term('Part') }}</th><th data-type="text">Polling station ({{ e.year }})</th>
+            <th class="num" data-type="num">Total votes</th><th class="num" data-type="num">Top votes</th>
+            <th class="num" data-type="num">Second votes</th><th class="num" data-type="num">Margin</th><th>Check</th></tr></thead>
+          <tbody>
+          {% for r in results if r.year == e.year %}{% set m = r.margin %}
+          <tr data-href="/result/{{ r.id }}" data-search="{{ (r.part_number|string ~ ' ' ~ (r.station_name or ''))|lower }}">
+            <td class="num" data-v="{{ r.part_number }}"><a href="/result/{{ r.id }}"><strong>{{ r.part_number }}</strong></a></td>
+            <td>{{ r.station_name or '—' }}</td>
+            <td class="num" data-v="{{ r.total_votes if r.total_votes is not none else '' }}">{{ r.total_votes|n }}</td>
+            <td class="num" data-v="{{ m.leader_votes if m else '' }}">{{ m.leader_votes|n if m else '—' }}{% if r.leader %}<div class="muted small">{{ r.leader.name }}{% if r.leader.party %} ({{ r.leader.party }}){% endif %}</div>{% endif %}</td>
+            <td class="num" data-v="{{ m.runner_up_votes if m else '' }}">{{ m.runner_up_votes|n if m else '—' }}{% if r.runner_up %}<div class="muted small">{{ r.runner_up.name }}{% if r.runner_up.party %} ({{ r.runner_up.party }}){% endif %}</div>{% endif %}</td>
+            <td class="num" data-v="{{ m.margin if m else '' }}"><strong>{{ m.margin|n if m else '—' }}</strong></td>
+            <td>{% if r.verified %}{{ ui.chip('good', 'Verified', r.reliability_note) }}{% else %}{{ ui.chip('warn', 'Review required', r.reliability_note) }}{% endif %}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </div>
+      {% if results|selectattr('year', 'equalto', e.year)|selectattr('candidates')|list %}
+      <p class="muted small">Top and second votes are the two highest candidate vote columns at each verified booth. Candidate
+        names are shown as printed in the source sheet's column headers; they are withheld on rows that require review
+        and where two columns are tied.</p>
+      {% else %}
+      <p class="muted small">Top and second votes are the two highest candidate vote columns at each verified booth. Candidate
+        names are not attributed because they cannot be reliably matched to the vote columns in the source.</p>
+      {% endif %}
+    </section>
+    {% endfor %}
+    </div>
     {% endfor %}
   </div>
-  {% endif %}
-
-  <div class="tablecard mt">
-    <div class="tools" data-for="res{{ e.year }}">
-      <input type="search" placeholder="Search part number or polling station">
-      <span class="lbl">Sort</span>
-      <button class="btn on" data-sort-table="res{{ e.year }}" data-sort-col="0" data-sort-dir="asc">Part number</button>
-      <button class="btn" data-sort-table="res{{ e.year }}" data-sort-col="2" data-sort-dir="desc">Highest total votes</button>
-      <button class="btn" data-sort-table="res{{ e.year }}" data-sort-col="5" data-sort-dir="asc">Narrowest margin</button>
-      <button class="btn" data-sort-table="res{{ e.year }}" data-sort-col="5" data-sort-dir="desc">Largest margin</button>
-      <span class="count" data-count></span>
-    </div>
-    <div class="scroll-y">
-    <table class="sortable" id="res{{ e.year }}">
-      <thead><tr><th class="num" data-type="num" style="width:70px">Part</th><th data-type="text">Polling station ({{ e.year }})</th>
-        <th class="num" data-type="num">Total votes</th><th class="num" data-type="num">Top votes</th>
-        <th class="num" data-type="num">Second votes</th><th class="num" data-type="num">Margin</th><th>Check</th></tr></thead>
-      <tbody>
-      {% for r in results if r.year == e.year %}{% set m = r.margin %}
-      <tr data-href="/result/{{ r.id }}" data-search="{{ (r.part_number|string ~ ' ' ~ (r.station_name or ''))|lower }}">
-        <td class="num" data-v="{{ r.part_number }}"><a href="/result/{{ r.id }}"><strong>{{ r.part_number }}</strong></a></td>
-        <td>{{ r.station_name or '—' }}</td>
-        <td class="num" data-v="{{ r.total_votes if r.total_votes is not none else '' }}">{{ r.total_votes|n }}</td>
-        <td class="num" data-v="{{ m.leader_votes if m else '' }}">{{ m.leader_votes|n if m else '—' }}{% if r.leader %}<div class="muted small">{{ r.leader.name }}{% if r.leader.party %} ({{ r.leader.party }}){% endif %}</div>{% endif %}</td>
-        <td class="num" data-v="{{ m.runner_up_votes if m else '' }}">{{ m.runner_up_votes|n if m else '—' }}{% if r.runner_up %}<div class="muted small">{{ r.runner_up.name }}{% if r.runner_up.party %} ({{ r.runner_up.party }}){% endif %}</div>{% endif %}</td>
-        <td class="num" data-v="{{ m.margin if m else '' }}"><strong>{{ m.margin|n if m else '—' }}</strong></td>
-        <td>{% if r.verified %}{{ ui.chip('good', 'Verified', r.reliability_note) }}{% else %}{{ ui.chip('warn', 'Review required', r.reliability_note) }}{% endif %}</td>
-      </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-    </div>
-  </div>
-  {% if results|selectattr('year', 'equalto', e.year)|selectattr('candidates')|list %}
-  <p class="muted small">Top and second votes are the two highest candidate vote columns at each verified booth. Candidate
-    names are shown as printed in the source sheet's column headers; they are withheld on rows that require review
-    and where two columns are tied.</p>
-  {% else %}
-  <p class="muted small">Top and second votes are the two highest candidate vote columns at each verified booth. Candidate
-    names are not attributed because they cannot be reliably matched to the vote columns in the source.</p>
-  {% endif %}
 </section>
-{% endfor %}
+{% endif %}
 {% endblock %}

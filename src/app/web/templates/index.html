@@ -2,15 +2,27 @@
 {% import "_macros.html" as ui %}
 {% block title %}Dashboard{% endblock %}
 {% block body %}
-<div class="eyebrow">From official election documents to booth-level intelligence</div>
-<h1 class="xl">{{ (current_state.state_name if current_state else "No state loaded")|upper }}</h1>
-<div class="h1sub">Election Data Intelligence</div>
-<p class="lede">Booth-level election data, historical results, mapping and data-quality intelligence — from official sources.</p>
 {% set sname = current_state.state_name if current_state else 'this state' %}
+<div class="hero">
+  <h1 class="xl">{{ (current_state.state_name if current_state else "No state loaded")|upper }}</h1>
+  <p class="lede">Election results, constituencies, polling stations and data quality — every figure computed from
+    official documents, with its source one click away.</p>
+  <form class="finder" action="/search" method="get" role="search">
+    <input name="q" placeholder="Find a constituency, polling station or part number…" aria-label="Find a constituency">
+    <button class="btn primary" type="submit">Search</button>
+  </form>
+  <div class="quick">
+    <a class="btn" href="/results">Election results</a>
+    <a class="btn" href="/constituencies">All {{ s.acs_current }} constituencies</a>
+    <a class="btn" href="/quality">Data quality</a>
+  </div>
+</div>
+
 {% if not s.booth_sources and (s.results or s.stations_current or s.acs_with_ac_results) %}
 <div class="panel mt"><p><strong>Partial booth-level data.</strong> Districts and assembly constituencies for
   {{ sname }} come from the Election Commission of India{% if s.results %}, polling-station-wise results from the
-  CEO {{ sname }} Form 20 sheets{% endif %}{% if s.acs_with_ac_results %}, constituency-wise candidate results
+  CEO {{ sname }} {{ ui.term('Form 20') }} sheets{% if oc %} ({{ oc.years|join(', ') }}: scanned sheets read by OCR, {{ oc.read|n }} of
+  {{ oc.of|n }} booths reconciled with their printed totals and shown; the rest are left out){% endif %}{% endif %}{% if s.acs_with_ac_results %}, constituency-wise candidate results
   ({{ s.ac_result_years|join(', ') }}) from the Election Commission's statistical reports{% endif %}{% if s.stations_current %}, and current polling stations from district
   polling-station lists for {{ s.acs_with_stations }} of {{ s.acs_current }} constituencies{% endif %}.
   {% if s.stations_current %}Electoral rolls{% else %}Current polling stations, electoral rolls{% endif %}{% if not s.results %},
@@ -30,44 +42,79 @@
       {{ aq.verified|n }} of {{ aq.results|n }} constituency results verified</div></div>
   {% elif s.booth_sources or not s.results %}
   <div class="bs"><div class="v">{{ s.stations_current|n }}</div><div class="l">Current Polling Stations</div>
-    <div class="s">current list ingested for {{ s.acs_with_stations }} of {{ s.acs_current }} constituencies</div></div>
+    <div class="s">current list loaded for {{ s.acs_with_stations }} of {{ s.acs_current }} constituencies</div></div>
   {% else %}
   <div class="bs"><div class="v">{{ s.results|n }}</div><div class="l">Historical Booth Results</div>
-    <div class="s">Form 20 rows for {{ result_acs|length }} of {{ s.acs_current }} constituencies; {{ rq.verified|n }} vote-sum verified</div></div>
+    <div class="s">Form 20 rows for {{ result_acs|length }} of {{ s.acs_current }} constituencies; {{ rq.verified|n }} vote-sum verified{% if oc %};
+      {{ oc.read|n }} of {{ oc.of|n }} booths read (OCR){% endif %}</div></div>
   {% endif %}
 </div>
 
-<div class="flow" aria-label="How the data is built">
-  <div class="step"><b>Official data</b><span>{% if aq and not s.results %}ECI statistical reports{% else %}ECI{% if s.booth_sources or s.results %} &amp; CEO {{ current_state.state_name }}{% endif %} sources{% endif %}</span></div><div class="arrow">→</div>
-  <div class="step"><b>Structured</b><span>State → district → AC → booth</span></div><div class="arrow">→</div>
-  {% if not s.booth_sources and not s.results and aq %}
-  <div class="step"><b>Validated</b><span>{{ aq.verified|n }} of {{ aq.results|n }} constituency results reconcile with the printed totals</span></div><div class="arrow">→</div>
-  {% elif s.booth_sources or not s.results %}
-  <div class="step"><b>Validated</b><span>{{ s.electors|n }} records checked</span></div><div class="arrow">→</div>
-  <div class="step"><b>Mapped</b><span>{{ mapping.values()|sum }} village-level mapping relationships</span></div><div class="arrow">→</div>
-  {% else %}
-  <div class="step"><b>Validated</b><span>{{ rq.verified|n }} of {{ rq.rows|n }} result rows reconcile with the printed totals</span></div><div class="arrow">→</div>
-  {% endif %}
-  {% if not s.booth_sources and not s.results and aq %}
-  <div class="step end"><b>Constituency view</b><span>result card per constituency and year</span></div>
-  {% else %}
-  <div class="step end"><b>Booth-level view</b><span>constituency and booth pages</span></div>
-  {% endif %}
-</div>
+{% if sr and sr.tallies %}
+<section>
+  <div class="sh"><h2>Election results</h2><a href="/results">Results for every constituency →</a></div>
+  {% set total = sr.rows|length %}
+  <div class="tallies">{% for t in sr.tallies|reverse %}{% include "_tally.html" %}{% endfor %}</div>
+</section>
+{% endif %}
+
+<section>
+  <div class="sh"><h2>Districts</h2><a href="/constituencies">All constituencies →</a></div>
+  <div class="tablecard">
+  <table>
+    <thead><tr><th>District</th><th class="num">Constituencies</th><th class="num">Polling stations</th><th>Notes</th></tr></thead>
+    <tbody>
+    {% for r in s.district_rows %}
+    <tr data-href="/district/{{ r.district.id }}">
+      <td><a href="/district/{{ r.district.id }}"><strong>{{ r.district.district_name }}</strong></a>
+          <span class="muted small">{{ r.district.district_name_local or '' }}</span></td>
+      <td class="num">{{ r.acs }}</td>
+      <td class="num">{{ r.stations|n if r.stations else '—' }}</td>
+      <td><div class="chips">
+        {% if (r.stations or r.has_historical_roll) and not (r.has_results or r.has_ac_results) %}<span class="muted small">No election results yet</span>{% endif %}
+        {% if r.has_historical_roll %}{{ ui.chip('good', '2003 electoral roll') }}{% endif %}
+        {% if r.has_mapping %}{{ ui.chip('warn', 'Booth mapping (partial)') }}{% endif %}
+        {% if not (r.stations or r.has_results or r.has_ac_results or r.has_historical_roll) %}<span class="muted small">Constituency list only</span>{% endif %}
+      </div></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
 
 {% set years = (result_acs|map(attribute='result_years')|sum(start=[]))|unique|sort|join(', ') %}
 <section>
-  <div class="sh"><h2>What this contains</h2></div>
+  <details class="prov">
+  <summary>About this data — sources, coverage and known limitations</summary>
+  <div class="inner">
+  <div class="flow" aria-label="How the data is built" style="margin:0 0 14px">
+    <div class="step"><b>Official data</b><span>{% if aq and not s.results %}ECI statistical reports{% else %}ECI{% if s.booth_sources or s.results %} &amp; CEO {{ current_state.state_name }}{% endif %} sources{% endif %}</span></div><div class="arrow">→</div>
+    <div class="step"><b>Structured</b><span>State → district → AC → booth</span></div><div class="arrow">→</div>
+    {% if not s.booth_sources and not s.results and aq %}
+    <div class="step"><b>Validated</b><span>{{ aq.verified|n }} of {{ aq.results|n }} constituency results reconcile with the printed totals</span></div><div class="arrow">→</div>
+    {% elif s.booth_sources or not s.results %}
+    <div class="step"><b>Validated</b><span>{{ s.electors|n }} records checked</span></div><div class="arrow">→</div>
+    <div class="step"><b>Mapped</b><span>{{ mapping.values()|sum }} village-level mapping relationships</span></div><div class="arrow">→</div>
+    {% else %}
+    <div class="step"><b>Validated</b><span>{{ rq.verified|n }} of {{ rq.rows|n }} result rows reconcile with the printed totals</span></div><div class="arrow">→</div>
+    {% endif %}
+    {% if not s.booth_sources and not s.results and aq %}
+    <div class="step end"><b>Constituency view</b><span>result card per constituency and year</span></div>
+    {% else %}
+    <div class="step end"><b>Booth-level view</b><span>constituency and booth pages</span></div>
+    {% endif %}
+  </div>
   <div class="tablecard">
   <table>
-    <thead><tr><th>Data</th><th>Coverage in this POC</th><th>Status</th></tr></thead>
+    <thead><tr><th>Data</th><th>Coverage</th><th>Status</th></tr></thead>
     <tbody>
       <tr><td><strong>Current polling stations</strong> {{ ui.ctx('cur', 'Current 2026') }}</td>
         {% if s.stations_current %}
         <td>{{ s.stations_current|n }} polling stations across {{ s.acs_with_stations }} of {{ s.acs_current }} constituencies</td>
         <td>{{ ui.chip('good', 'Available') }}</td></tr>
         {% else %}
-        <td>Not yet ingested for this state</td>
+        <td>Not loaded yet for this state</td>
         <td>{{ ui.chip('plain', 'Not available') }}</td></tr>
         {% endif %}
       <tr><td><strong>Current voter roll</strong> {{ ui.ctx('cur', 'Current 2026') }}</td>
@@ -79,12 +126,12 @@
         <td>{{ ui.chip('warn', 'Sample parts') }}</td></tr>
       {% endfor %}
       {% if result_acs %}
-      <tr><td><strong>Historical results (Form 20)</strong> {{ ui.ctx('hist', 'Historical ' ~ years) }}</td>
+      <tr><td><strong>Polling-station results ({{ ui.term('Form 20') }})</strong> {{ ui.ctx('hist', 'Historical ' ~ years) }}</td>
         <td>{{ s.results|n }} polling-station result rows across {{ result_acs|length }} of {{ s.acs_current }} constituencies</td>
         <td>{{ ui.chip('good' if result_acs|length == s.acs_current else 'warn', 'Available' if result_acs|length == s.acs_current else 'Partial') }}</td></tr>
       {% endif %}
       {% if s.acs_with_ac_results %}
-      <tr><td><strong>Constituency results (ECI)</strong> {{ ui.ctx('hist', 'Historical ' ~ s.ac_result_years|join(', ')) }}</td>
+      <tr><td><strong>Constituency results ({{ ui.term('ECI') }})</strong> {{ ui.ctx('hist', 'Historical ' ~ s.ac_result_years|join(', ')) }}</td>
         <td>Candidate-wise votes for {{ s.acs_with_ac_results }} of {{ s.acs_current }} constituencies, from the Election
           Commission of India's statistical reports (constituency totals, not booth-wise)</td>
         <td>{{ ui.chip('good' if s.acs_with_ac_results == s.acs_current else 'warn', 'Available' if s.acs_with_ac_results == s.acs_current else 'Partial') }}</td></tr>
@@ -104,32 +151,7 @@
     current public source. Historical 2003 roll data and historical Form 20 results are available for the demonstrated
     datasets. Historical-to-current booth mapping is evidence-based and incomplete.</p></div>
   {% endif %}
-</section>
-
-<section>
-  <div class="sh"><h2>Districts</h2><a href="/constituencies">All constituencies →</a></div>
-  <div class="tablecard">
-  <table>
-    <thead><tr><th>District</th><th class="num">Assembly constituencies</th><th class="num">Polling stations</th><th>Available data</th></tr></thead>
-    <tbody>
-    {% for r in s.district_rows %}
-    <tr data-href="/district/{{ r.district.id }}">
-      <td><a href="/district/{{ r.district.id }}"><strong>{{ r.district.district_name }}</strong></a>
-          <span class="muted small">{{ r.district.district_name_local or '' }}</span></td>
-      <td class="num">{{ r.acs }}</td>
-      <td class="num">{{ r.stations|n if r.stations else '—' }}</td>
-      <td><div class="chips">
-        {% if r.stations %}{{ ui.chip('good', 'Current polling stations') }}{% endif %}
-        {% if r.has_results %}{{ ui.chip('good', 'Historical results') }}{% endif %}
-        {% if r.has_ac_results and not r.has_results %}{{ ui.chip('good', 'Constituency results') }}{% endif %}
-        {% if r.has_historical_roll %}{{ ui.chip('good', '2003 electoral roll') }}{% endif %}
-        {% if r.has_mapping %}{{ ui.chip('warn', 'Booth mapping (partial)') }}{% endif %}
-        {% if not (r.stations or r.has_results or r.has_ac_results or r.has_historical_roll) %}<span class="muted small">Constituency list only</span>{% endif %}
-      </div></td>
-    </tr>
-    {% endfor %}
-    </tbody>
-  </table>
   </div>
+  </details>
 </section>
 {% endblock %}
