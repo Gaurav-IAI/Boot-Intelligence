@@ -2,12 +2,16 @@
 
 Two published forms are read:
 
-* Excel (2023 onwards): one row per candidate with STATE, AC NO., AC NAME, CANDIDATE NAME,
-  SEX, AGE, CATEGORY, PARTY, SYMBOL, GENERAL, POSTAL, TOTAL, % VOTES POLLED, TOTAL ELECTORS.
-* PDF with a text layer (2018): per constituency a "Constituency <n>. <name> ... TOTAL
-  ELECTORS : <n>" line, one line per candidate (name and symbol may wrap onto following
-  lines), and a closing "TURNOUT ... TOTAL: <general> <postal> <total> <turnout%>" line.
-  Columns are taken from word positions under the header, not from text order.
+* Excel: one row per candidate with STATE, AC NO., AC NAME, CANDIDATE NAME, SEX, AGE,
+  CATEGORY, PARTY, SYMBOL, GENERAL, POSTAL, TOTAL, % VOTES POLLED, TOTAL ELECTORS (2022
+  onwards). The 2017 reports spell the columns out ("Constituency No.", "VALID VOTES POLLED
+  in General", ...), have no SYMBOL, and print each constituency's "Total valid votes polled
+  +NOTA", which is kept as the printed constituency total.
+* PDF with a text layer (Telangana 2018; Uttarakhand 2012, inside the full statistical
+  report): per constituency a "Constituency <n>. <name> ... TOTAL ELECTORS : <n>" line, one
+  line per candidate (name and symbol may wrap onto following lines), and a closing
+  "TURNOUT ... TOTAL: <general> <postal> <total> <turnout%>" line. Columns are taken from
+  word positions under the header, not from text order; the 2012 layout has no SYMBOL column.
 
 Every number is read from typed text or cells; nothing is OCR'd.
 """
@@ -18,7 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 PARSER_NAME = "eci_detailed_results"
-PARSER_VERSION = "1.0.0"
+PARSER_VERSION = "1.1.0"
 
 
 @dataclass
@@ -66,6 +70,19 @@ def _float(v) -> float | None:
 
 
 # ------------------------------------------------------------------------ Excel
+# column -> how the 2017 reports spell it
+_XLSX_ALIASES = {
+    "AC NO.": "CONSTITUENCY NO.", "AC NAME": "CONSTITUENCY NAME", "SEX": "CANDIDATE SEX",
+    "AGE": "CANDIDATE AGE", "CATEGORY": "CANDIDATE CATEGORY", "PARTY": "PARTY NAME",
+    "GENERAL": "VALID VOTES POLLED IN GENERAL", "POSTAL": "VALID VOTES POLLED IN POSTAL",
+    "TOTAL": "TOTAL VALID VOTES",
+}
+
+
+def _head(v) -> str:
+    return " ".join(str(v).split()).upper() if v is not None else ""
+
+
 def parse_detailed_xlsx(path: Path) -> list[AcBlock]:
     import openpyxl
     wb = openpyxl.load_workbook(str(path), read_only=True, data_only=True)
@@ -73,23 +90,31 @@ def parse_detailed_xlsx(path: Path) -> list[AcBlock]:
     rows = list(ws.iter_rows(values_only=True))
     wb.close()
     head_i = next(i for i, r in enumerate(rows)
-                  if r and any(str(v).strip().upper() == "AC NO." for v in r if v is not None))
-    head = [str(v).strip().upper() if v is not None else "" for v in rows[head_i]]
+                  if r and any(_head(v) in ("AC NO.", _XLSX_ALIASES["AC NO."]) for v in r))
+    head = [_head(v) for v in rows[head_i]]
 
-    def col(name: str) -> int:
-        return head.index(name)
+    def col(name: str, required: bool = True) -> int | None:
+        for h in (name, _XLSX_ALIASES.get(name)):
+            if h in head:
+                return head.index(h)
+        if required:
+            raise ValueError(f"{path.name}: no {name!r} column in the header")
+        return None
 
     c_ac, c_acn, c_name = col("AC NO."), col("AC NAME"), col("CANDIDATE NAME")
-    c_sex, c_age, c_cat, c_party, c_sym = col("SEX"), col("AGE"), col("CATEGORY"), col("PARTY"), col("SYMBOL")
+    c_sex, c_age, c_cat, c_party = col("SEX"), col("AGE"), col("CATEGORY"), col("PARTY")
+    c_sym = col("SYMBOL", required=False)
     c_gen, c_post, c_tot = col("GENERAL"), col("POSTAL"), col("TOTAL")
     c_pct = next(i for i, h in enumerate(head) if h.startswith("% VOTES"))
     c_el = col("TOTAL ELECTORS")
+    c_printed = col("TOTAL VALID VOTES POLLED +NOTA", required=False)
     blocks: dict[int, AcBlock] = {}
     for r in rows[head_i + 1:]:
         if not r or _int(r[c_ac]) is None or _int(r[c_tot]) is None:
             continue
         n = _int(r[c_ac])
-        b = blocks.setdefault(n, AcBlock(n, str(r[c_acn]).strip(), _int(r[c_el])))
+        b = blocks.setdefault(n, AcBlock(n, str(r[c_acn]).strip(), _int(r[c_el]),
+                                         printed_total=_int(r[c_printed]) if c_printed is not None else None))
         raw = str(r[c_name]).strip()
         m = re.match(r"^(\d+)\s+(.*)$", raw)                       # "1 Dr.palvai Harish"
         serial, name = (int(m.group(1)), m.group(2)) if m else (None, raw)
@@ -99,7 +124,7 @@ def parse_detailed_xlsx(path: Path) -> list[AcBlock]:
         b.candidates.append(Candidate(
             serial=serial, name=name, sex=(str(r[c_sex]).strip() or None) if r[c_sex] else None,
             age=_int(r[c_age]), category=(str(r[c_cat]).strip() or None) if r[c_cat] else None,
-            party=party, symbol=(str(r[c_sym]).strip() or None) if r[c_sym] else None,
+            party=party, symbol=(str(r[c_sym]).strip() or None) if c_sym is not None and r[c_sym] else None,
             general=_int(r[c_gen]), postal=_int(r[c_post]), total=_int(r[c_tot]), pct=_float(r[c_pct])))
     return [blocks[k] for k in sorted(blocks)]
 
@@ -115,9 +140,11 @@ def _col_bounds(header_words) -> list[tuple[str, float]]:
     x = {w[4].upper(): w[0] for w in header_words}
     if "GENERAL" not in x:
         return _COLS
+    # no SYMBOL header (Uttarakhand 2012): no symbol column, or it would take the party
+    symbol = [("symbol", x["SYMBOL"] - 6)] if "SYMBOL" in x else []
     return [("name", 50), ("sex", x.get("SEX", 180) - 3), ("age", x.get("AGE", 209) - 6),
             ("category", x.get("CATEGORY", 230) - 3), ("party", x.get("PARTY", 288) - 10),
-            ("symbol", x.get("SYMBOL", 324) - 6), ("general", x["GENERAL"] - 6),
+            *symbol, ("general", x["GENERAL"] - 6),
             ("postal", x.get("POSTAL", 445) - 8), ("total", x.get("TOTAL", 486) - 6),
             ("pct", x.get("POLLED", 534) - 6)]
 

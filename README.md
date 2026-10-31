@@ -43,7 +43,7 @@ dashboard, constituency list, search and data-quality page.
 
 | State | Loaded from | Depth |
 |---|---|---|
-| Uttarakhand (S28) | ECI + CEO Uttarakhand | everything above |
+| Uttarakhand (S28) | ECI + CEO Uttarakhand | everything above, plus constituency-level results 2012/2017/2022 (candidate-wise, from the ECI statistical reports) |
 | Uttar Pradesh (S24) | ECI + CEO Uttar Pradesh + district election offices | constituencies, Form 20 booth results 2012/2017/2022, current polling stations (Ghaziabad so far) |
 | Telangana (S29) | ECI | districts, constituencies, constituency-level results 2018/2023 (candidate-wise, from the ECI statistical reports) |
 
@@ -108,6 +108,21 @@ time. Each constituency is Verified only when the report's own arithmetic holds
 (general + postal = total for every candidate; candidates add up to the printed
 constituency total). These rows live in `ac_results` and appear on the constituency
 and Historical Results pages as a result card per year.
+
+**Uttarakhand results by year.** Booth-level Form 20 exists only for 2012 (the 2017 and
+2022 sheets are scans). Every year also has the ECI statistical report's candidate-wise
+constituency result, loaded with:
+
+```bash
+python -m app results --state Uttarakhand      # 2012, 2017, 2022: 70 ACs each, 2,197 candidate rows
+```
+
+2022 and 2017 are the reports' Excel files; 2012 is part 10 of the full report PDF (text
+layer). All 210 constituency-years pass the report's own arithmetic, and 2012 and 2017
+also match their printed constituency totals. The reports sit on old.eci.gov.in, so they
+are fetched with Playwright on first run. Constituency and Historical Results pages show
+the elections year by year: the constituency result, then the Form 20 booth table where
+one exists. Historical booth numbers are never matched to current polling stations.
 
 Nothing is estimated for data that is not loaded. AC numbers repeat across states
 (each state has an AC 19), so Form 20 results and part mappings are matched by

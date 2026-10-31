@@ -1,17 +1,18 @@
 """Constituency-level results from the ECI statistical reports ("Detailed Results").
 
-For states whose booth-level Form 20 cannot be read (Telangana: scanned sheets), the ECI's
-own statistical report gives every candidate's votes per constituency as typed text: an
-Excel file (2023) or a PDF with a text layer (2018). These rows go to `ac_results`, never
-to the booth-level `election_results`.
+For elections whose booth-level Form 20 cannot be read (Telangana; Uttarakhand 2017 and 2022:
+scanned sheets), the ECI's own statistical report gives every candidate's votes per
+constituency as typed text: an Excel file or a PDF with a text layer. These rows go to
+`ac_results`, never to the booth-level `election_results`. Uttarakhand 2012 is loaded too,
+so all three years read the same way; its booth-level Form 20 rows stay as they are.
 
 Each constituency is checked against the report's own arithmetic (general + postal = total
 for every candidate; candidates add up to the printed constituency total where one is
 printed) and the check is recomputed on every read.
 
-Sources are declared per state and year below. The 2018 report sits on the ECI's old site,
-which serves files only to a browser session, so it is fetched with Playwright when it is
-not already in data/raw.
+Sources are declared per state and year below. Reports before 2023 sit on the ECI's old
+site, which serves files only to a browser session, so they are fetched with Playwright
+when they are not already in data/raw.
 """
 from __future__ import annotations
 
@@ -20,11 +21,12 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import repositories as repo
-from ..database.models import AcResult
+from ..database.models import AcResult, Election
 from ..extraction.parsers.eci_detailed_results import (
     PARSER_NAME, PARSER_VERSION, check_block, parse_detailed_results,
 )
@@ -46,6 +48,18 @@ AC_RESULT_SOURCES: dict[str, dict[int, dict[str, str]]] = {
                        "9691-telangana-general-legislative-election-2018-statistical-report/",
                "browser_file": "Detailed Results",           # picked from the site's file list
                "file": "2018_Detailed_Results.pdf"},
+    },
+    "Uttarakhand": {
+        2022: {"page": "https://old.eci.gov.in/files/file/14169-uttarakhand-general-legislative-election-2022/",
+               "browser_file": "Detailed Results.xlsx",
+               "file": "2022_Detailed_Results.xlsx"},
+        2017: {"page": "https://old.eci.gov.in/files/file/3470-uttarakhand-general-legislative-election-2017/",
+               "browser_file": "Detailed Results.xlsx",
+               "file": "2017_Detailed_Results.xlsx"},
+        # one PDF holding the whole statistical report; "Detailed Results" is its part 10
+        2012: {"page": "https://old.eci.gov.in/files/file/3231-uttarakhand%092012/",
+               "browser_file": "2012.pdf",
+               "file": "2012_Statistical_Report.pdf"},
     },
 }
 
@@ -74,8 +88,12 @@ def fetch_with_browser(page_url: str, file_label: str, dest: Path) -> None:
         ctx = browser.new_context(accept_downloads=True)
         page = ctx.new_page()
         page.goto(page_url.rstrip("/") + "/?do=download", wait_until="networkidle", timeout=90000)
-        links = page.eval_on_selector_all("a[href*='do=download'][href*='r=']", "els => els.map(e => e.href)")
-        for href in links:
+        rows = page.eval_on_selector_all(
+            "a[href*='do=download'][href*='r=']",
+            "els => els.map(e => [e.href, (e.closest('li') || e.parentElement).innerText])")
+        # the list prints each file's name: download only the ones that match
+        named = [h for h, text in rows if file_label.lower() in (text or "").lower()]
+        for href in named or [h for h, _ in rows]:
             with page.expect_download(timeout=120000) as dl:
                 page.evaluate("u => { window.location.href = u; }", href)
             d = dl.value
@@ -120,8 +138,12 @@ def load_ac_results(db: Session, http: HttpClient, state: str, *, years: tuple[i
         repo.record_fetch(db, source=SOURCE_ECI_REPORT, url=url, ok=True, bytes_received=len(data),
                           checksum=sha256_bytes(data), local_path=str(path))
         blocks = parse_detailed_results(path)
+        # an election the booth-level loader already created (Uttarakhand 2012) keeps its own
+        # source: the Form 20 backfill checks checksums against it. Rows carry their own URL.
+        prior = db.scalar(select(Election.source_url).where(
+            Election.election_year == year, Election.election_type == "VIDHAN_SABHA", Election.state == state))
         election = repo.upsert_election(db, election_year=year, election_type="VIDHAN_SABHA",
-                                        state=state, source_url=url)
+                                        state=state, source_url=prior or url)
         db.query(AcResult).filter(AcResult.election_id == election.id).delete()
         n_cand = 0
         for b in blocks:

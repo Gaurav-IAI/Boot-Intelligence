@@ -419,7 +419,7 @@ def cmd_backfill_form20(
 
 @app.command("results")
 def cmd_results(
-    state: str = typer.Option(..., "--state", help="Uttar Pradesh or Telangana"),
+    state: str = typer.Option(..., "--state", help="Uttar Pradesh, Telangana or Uttarakhand"),
     years: str = typer.Option("all", "--years", help="'all' (the state's supported years) or e.g. 2022,2017"),
     district: str = typer.Option("all", "--district",
                                  help="UP only: 'all' or comma-separated district names, e.g. Agra"),
@@ -427,31 +427,50 @@ def cmd_results(
     refresh: bool = typer.Option(False, "--refresh",
                                  help="re-process constituency-years already stored or blocked"),
     resume: bool = typer.Option(True, "--resume/--no-resume", help="reuse downloaded files"),
+    booths: bool = typer.Option(False, "--booths",
+                                help="Telangana: also read the scanned 2018 Form 20 sheets by OCR "
+                                     "(hours; resumable; set TG_OCR_WORKERS to limit CPU use)"),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ):
-    """Load Form 20 booth results for Uttar Pradesh or Telangana (Uttarakhand's come from `pipeline`).
+    """Load Form 20 booth results for Uttar Pradesh or Telangana, and constituency-level results
+    (ECI statistical reports) for Telangana and Uttarakhand.
 
     Not run by `serve`: these states have ~1,400 result files, so they load only on
-    request. Resumable — already processed constituency-years are skipped.
+    request. Resumable — already processed constituency-years are skipped. Uttarakhand's
+    booth-level Form 20 (2012) comes from `pipeline`; here it gets 2012, 2017 and 2022
+    candidate-wise results per constituency.
     """
+    from ..services.ac_results import load_ac_results
     from ..services.state_results import load_state_results
 
     _setup_logging(verbose)
     (name,) = _state_list(state)
-    if name == BOOTH_STATE:
-        console.print(f"[yellow]{BOOTH_STATE} results are loaded by `python -m app pipeline`.[/]")
-        raise typer.Exit(1)
     year_t = None if years.strip().lower() == "all" else tuple(int(y) for y in years.split(",") if y.strip())
     ac_t = None if acs.strip().lower() == "all" else tuple(int(a) for a in acs.split(",") if a.strip())
     dists = None if district.strip().lower() == "all" else [d.strip() for d in district.split(",") if d.strip()]
     init_db()
+    if name == BOOTH_STATE:
+        with get_session() as db, _http(3) as http:
+            ac_run = load_ac_results(db, http, name, years=year_t, resume=resume)
+        console.print(ac_run.summary())
+        for w in ac_run.warnings:
+            console.print(f"[yellow]warning:[/] {w}")
+        console.print(f"Booth-level Form 20 for {BOOTH_STATE} is loaded by `python -m app pipeline`.")
+        raise typer.Exit(0 if ac_run.stored else 1)
     with get_session() as db, _http(3) as http:
         try:
             if name == "Telangana":
-                # booth-level Form 20 is scanned: constituency-level results from the ECI report
-                from ..services.ac_results import load_ac_results
-                run = load_ac_results(db, http, name, years=year_t, resume=resume)
-                run.tally = {"failed": 0 if run.stored else 1}
+                # constituency-level results from the ECI report; booth level (scanned) only on request
+                ac_run = load_ac_results(db, http, name, years=year_t, resume=resume)
+                console.print(ac_run.summary())
+                for w in ac_run.warnings:
+                    console.print(f"[yellow]warning:[/] {w}")
+                if booths:
+                    run = load_state_results(db, http, name, years=year_t or (2018,), acs=ac_t,
+                                             resume=resume, refresh=refresh)
+                else:
+                    console.print("Booth-level 2018 results (OCR, several hours): add --booths")
+                    raise typer.Exit(0 if ac_run.stored else 1)
             else:
                 run = load_state_results(db, http, name, years=year_t, districts=dists, acs=ac_t,
                                          resume=resume, refresh=refresh)
