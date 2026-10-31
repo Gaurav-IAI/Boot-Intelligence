@@ -43,9 +43,9 @@ dashboard, constituency list, search and data-quality page.
 
 | State | Loaded from | Depth |
 |---|---|---|
-| Uttarakhand (S28) | ECI + CEO Uttarakhand | everything above |
+| Uttarakhand (S28) | ECI + CEO Uttarakhand | everything above, plus constituency-level results 2012/2017/2022 (candidate-wise, from the ECI statistical reports) |
 | Uttar Pradesh (S24) | ECI + CEO Uttar Pradesh + district election offices | constituencies, Form 20 booth results 2012/2017/2022, current polling stations (Ghaziabad so far) |
-| Telangana (S29) | ECI | districts and constituencies only |
+| Telangana (S29) | ECI | districts, constituencies, constituency-level results 2018/2023 (candidate-wise, from the ECI statistical reports) |
 
 **Uttar Pradesh results** come from the CEO's Form 20 Excel workbooks (typed cells,
 no OCR), with candidate names and parties as printed. They are loaded on request,
@@ -91,9 +91,38 @@ is not available either: UP publishes no official 2003-to-2026 part mapping like
 Uttarakhand's, and a mapping inferred from OCR'd 2003 cover pages could at most be
 "Possible", never Verified.
 
-**Telangana results are not loaded.** The CEO publishes Form 20 only as scanned
-PDFs. Local OCR (Tesseract, RapidOCR) reconciled under 10% of rows against the
-sheet's own arithmetic, so nothing below the verification standard is stored.
+**Telangana results are constituency-level, not booth-level.** The CEO publishes
+Form 20 only as scanned PDFs, and local OCR did not meet the verification standard
+(under 10% of 2023 rows reconciled; about 79% on 2018 samples, not yet run in full),
+so no booth rows are stored. Instead, the ECI statistical report "Detailed Results"
+(2023 as Excel, 2018 as a PDF with a text layer) gives every candidate's general,
+postal and total votes per constituency:
+
+```bash
+python -m app results --state Telangana        # 2018 + 2023, 119 ACs each, ~4,350 candidate rows
+```
+
+The 2018 report is on the ECI's old site, which serves files only to a browser
+session, so it is fetched with Playwright (`playwright install chromium`) the first
+time. Each constituency is Verified only when the report's own arithmetic holds
+(general + postal = total for every candidate; candidates add up to the printed
+constituency total). These rows live in `ac_results` and appear on the constituency
+and Historical Results pages as a result card per year.
+
+**Uttarakhand results by year.** Booth-level Form 20 exists only for 2012 (the 2017 and
+2022 sheets are scans). Every year also has the ECI statistical report's candidate-wise
+constituency result, loaded with:
+
+```bash
+python -m app results --state Uttarakhand      # 2012, 2017, 2022: 70 ACs each, 2,197 candidate rows
+```
+
+2022 and 2017 are the reports' Excel files; 2012 is part 10 of the full report PDF (text
+layer). All 210 constituency-years pass the report's own arithmetic, and 2012 and 2017
+also match their printed constituency totals. The reports sit on old.eci.gov.in, so they
+are fetched with Playwright on first run. Constituency and Historical Results pages show
+the elections year by year: the constituency result, then the Form 20 booth table where
+one exists. Historical booth numbers are never matched to current polling stations.
 
 Nothing is estimated for data that is not loaded. AC numbers repeat across states
 (each state has an AC 19), so Form 20 results and part mappings are matched by
@@ -306,7 +335,7 @@ src/app/
   extraction/ocr/            Tesseract Devanagari, degrades honestly when absent
   extraction/parsers/        krutidev, devanagari_fix, roll_2003, ps_list_2026, form20_2012, form20_up_xls
   database/                  models + idempotent repositories
-  services/                  pipeline, validation, state_results (UP/Telangana Form 20)
+  services/                  pipeline, validation, state_results (UP Form 20), ac_results (ECI reports)
   analytics/                 booth statistics, quality report
   browser/                   Playwright research helpers (NOT in the pipeline)
   cli/  web/                 Typer CLI, FastAPI dashboard
@@ -335,8 +364,9 @@ needs a CEO adapter plus `booth_sources=True`.
 4. **Form 20 2017/2022 need OCR**, and Tesseract was not installed in the
    development environment, so that path is implemented and unit-tested but not
    demonstrated on a real scan.
-5. **Telangana Form 20 is not loaded** — scanned PDFs that local OCR could not read
-   reliably (see "States covered").
+5. **Telangana has no booth-level results** — Form 20 is scanned and local OCR could
+   not read it reliably; constituency-level results come from the ECI statistical
+   reports instead (see "States covered").
 6. **Some UP sheets disagree with their own printed totals** — a sheet's grand total
    can differ from the sum of its booth rows, and a few rows have blank cells. Those
    rows show as Review required; the mismatches are reported by `results`.

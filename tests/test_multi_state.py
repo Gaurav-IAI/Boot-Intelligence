@@ -142,6 +142,16 @@ def test_record_pages_take_their_own_state(client):
     uk = c.get(f"/ac/{ids['uk_ac']}")
     assert uk.status_code == 200 and 'href="/?state=S28">Uttarakhand' in uk.text
     tg = c.get(f"/ac/{ids['ts_ac']}")
-    assert 'href="/?state=S29">Telangana' in tg.text and "Not available in current POC" in tg.text
+    assert 'href="/?state=S29">Telangana' in tg.text and "Not available yet" in tg.text
     assert c.get("/quality?state=S29").status_code == 200
     assert c.get("/search?q=19").status_code == 200
+
+
+def test_results_page_per_state(client):
+    c, ids = client
+    uk = c.get("/results?state=S28")
+    # booth-level Form 20 only: a link per constituency, and no seat count estimated from it
+    assert uk.status_code == 200 and f'href="/ac/{ids["uk_ac"]}/performance#election-2012">Booth results' in uk.text
+    assert "Seat counts need the" in uk.text and "Seats won" not in uk.text
+    tg = c.get("/results?state=S29")
+    assert tg.status_code == 200 and "No election results are loaded for Telangana yet" in tg.text

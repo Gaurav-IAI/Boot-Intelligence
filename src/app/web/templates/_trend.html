@@ -1,0 +1,18 @@
+{# One card per election year: winner, margin, turnout. Expects `years`, `ac_elections`,
+   `booth_counts` ({year: booth rows}) and `ui`. Each card opens that year's tab. #}
+<div class="trend">
+{% for y in years %}{% set e = ac_elections|selectattr('year', 'equalto', y)|first %}
+  <a class="yr" href="#election-{{ y }}" style="--pc:{{ party_color(e.winner.party) if e and e.winner else '#9aa4b2' }}">
+    <div class="y">{{ y }} ELECTION</div>
+    {% if e and e.winner %}
+      <div class="w">{{ ui.party(e.winner.party, 'lg') }} {{ e.winner.candidate_name }}</div>
+      <div class="m">{% if e.margin is not none %}won by {{ e.margin|n }} votes{% if e.margin_pct is not none %} ({{ e.margin_pct|pct }}){% endif %}{% endif %}
+        {% if e.turnout_pct is not none %}<br>turnout {{ e.turnout_pct|pct }}{% endif %}</div>
+      <div class="mt" style="margin-top:8px">{% if e.verified %}{{ ui.chip('good', 'Verified', e.note) }}{% else %}{{ ui.chip('warn', 'Review required', e.note) }}{% endif %}</div>
+    {% else %}
+      <div class="w">Polling-station results</div>
+      <div class="m">{{ (booth_counts or {}).get(y, 0)|n }} booth rows ({{ ui.term('Form 20') }}); no constituency total loaded</div>
+    {% endif %}
+  </a>
+{% endfor %}
+</div>

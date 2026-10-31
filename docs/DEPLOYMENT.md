@@ -17,14 +17,16 @@ run `setup_server.sh`**. It is meant for fresh servers and would also reconfigur
 the firewall and PostgreSQL. Use the update script instead. It changes only the code
 and adds data:
 
-**How data reaches production.** The Uttar Pradesh data travels as a small export
-(`deploy/up_data.sqlite3.gz`, ~35 MB) committed in the repository.
+**How data reaches production.** Each state's data travels as a small export committed
+in the repository: `deploy/up_data.sqlite3.gz` (Uttar Pradesh, ~35 MB) and
+`deploy/tg_data.sqlite3.gz` (Telangana constituency results, well under 1 MB).
 
 - **Data owner (workstation), whenever the data changes:**
   ```powershell
   powershell -ExecutionPolicy Bypass -File scripts\publish_data.ps1
+  powershell -ExecutionPolicy Bypass -File scripts\publish_data.ps1 -State Telangana
   ```
-  This exports UP from the full local database, then commits and pushes the file. If
+  Each run exports one state from the full local database, then commits and pushes the file. If
   that pushes a branch other than `main`, merge it into `main`.
 
 - **Server administrator, to update (the same command every time):**
@@ -62,6 +64,30 @@ Notes:
 
 To keep the data fresh, add the weekly refresh and nightly backup timers from section 6
 (`booth-intel-refresh`, `booth-intel-backup`).
+
+### Uttarakhand data (a private file, never committed)
+
+Uttarakhand's export holds the elector records extracted from the 2003 roll (names, ages,
+relatives), and this repository is public, so it is **not** committed to `deploy/`. It
+travels as a file handed to the server team privately (scp, or a shared drive link that
+is not public). Importing it replaces the server's Uttarakhand rows, including the
+polling-station areas, the 2012/2017/2022 constituency results and the pipeline's
+records of what it has already processed, so the server downloads and re-parses nothing.
+
+- **Data owner (workstation):**
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File scripts\publish_data.ps1 -State Uttarakhand
+  ```
+  This writes `data\exports\uk_data.sqlite3.gz` (about 1.5 MB) and refuses to commit it.
+- **Server administrator**, after the usual update above (which brings the code and any
+  committed exports):
+  ```bash
+  scp uk_data.sqlite3.gz root@SERVER:/root/            # or download it from the private link
+  sudo STATE_FILE=/root/uk_data.sqlite3.gz bash /var/www/Boot-Intelligence/scripts/deploy/update_server.sh
+  ```
+  With `STATE_FILE` the script imports only that file (one transaction, after a database
+  backup) and restarts the service. Running it again with the same file is skipped unless
+  `FORCE_IMPORT=1`. Delete the copy in `/root` afterwards.
 
 ---
 

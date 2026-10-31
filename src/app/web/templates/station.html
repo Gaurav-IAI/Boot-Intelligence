@@ -3,8 +3,10 @@
 {% block title %}Part {{ d.station.part_number }} · {{ ac_label(d.ac) }}{% endblock %}
 {% block body %}
 {% set st = d.station %}{% set cur = st.edition == 'SIR-2026' %}{% set g = r.agg %}{% set bs = r.stats %}
-{% if cur %}{{ ui.ctx('cur', 'Current polling station — 2026') }}{% else %}{{ ui.ctx('hist', 'Historical electoral roll — ' ~ (d.roll.roll_year if d.roll else '2003')) }}{% endif %}
-<h1>PART {{ st.part_number }}</h1>
+{% set tag = ui.ctx('cur', 'Current polling station — 2026') if cur else ui.ctx('hist', 'Historical electoral roll — ' ~ (d.roll.roll_year if d.roll else '2003')) %}
+{% call ui.page_head('PART ' ~ st.part_number, tag) %}
+  <a class="btn" href="/ac/{{ d.ac.id }}#booths">← All polling stations</a>
+{% endcall %}
 <div class="subhead"><strong>{{ st.polling_station_name or st.part_name or '—' }}</strong>
   {% if st.polling_station_name_local and st.polling_station_name_local != st.polling_station_name %}· {{ st.polling_station_name_local }}{% endif %}</div>
 <div class="subhead small mt">
@@ -64,7 +66,7 @@
   <div class="card">
     <h3>Historical mapping</h3>
     {% if lineage %}
-    <table class="mt">
+    <div class="scroll-x mt"><table>
       <thead><tr><th>Historical part {{ ui.ctx('hist', '2003') }}</th><th>Current part {{ ui.ctx('cur', '2026') }}</th><th>Mapping</th></tr></thead>
       <tbody>
       {% for m in lineage %}
@@ -76,19 +78,20 @@
       </tr>
       {% endfor %}
       </tbody>
-    </table>
+    </table></div>
     <p class="muted small mt">Electorate comparison unavailable — the current voter roll is not available.</p>
     {% else %}
     <p class="muted">{% if cur %}No official historical mapping links to this polling station.{% else %}Not mapped — no official village mapping has been ingested for this part.{% endif %}</p>
     {% endif %}
   </div>
 
-  {% if cur and av.result_records %}
+  {% if cur and av.election_years %}
   <div class="card mt">
     <h3>Historical results</h3>
-    <p class="muted" style="margin:0">{{ av.result_years|join(', ') }} Form 20 records exist for this constituency in their original
-      booth numbering. They are not assigned to this polling station because no verified booth mapping exists.</p>
-    <div class="actions"><a class="btn" href="/ac/{{ d.ac.id }}/performance">View {{ av.result_years|join(', ') }} results</a></div>
+    <p class="muted" style="margin:0">{% if av.ac_result_years %}Constituency results exist for {{ av.ac_result_years|join(', ') }}.{% endif %}
+      {% if av.result_records %}{{ av.result_years|join(', ') }} Form 20 records exist for this constituency in their original
+      booth numbering. They are not assigned to this polling station because no verified booth mapping exists.{% endif %}</p>
+    <div class="actions"><a class="btn" href="/ac/{{ d.ac.id }}/performance">View {{ av.election_years|join(', ') }} results</a></div>
   </div>
   {% endif %}
 </div>

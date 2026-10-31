@@ -329,9 +329,32 @@ sources:
     extraction_method: OCR required - 2023 scans have no text layer; 2018's OCR layer is corrupt
     last_verified: 2026-09-25
     notes: >
-      Local OCR (Tesseract eng, RapidOCR) reconciled under 10% of rows against the
-      sheet's own arithmetic, so nothing is loaded; `results --state Telangana`
-      explains this and stops.
+      Booth-level rows are not loaded. 2023: local OCR (Tesseract eng, RapidOCR)
+      reconciled under 10% of rows against the sheet's own arithmetic. 2018: a
+      per-cell OCR prototype reconciled about 79% of rows on sample sheets
+      (roughly 35 CPU-hours for all 119); not yet run. Constituency-level results
+      come from eci_statistical_report instead.
+
+  # ------------------------------------------- ECI statistical reports ----
+  eci_statistical_report:
+    name: ECI - Statistical Report, "Detailed Results" (candidate-wise votes per AC)
+    owner: Election Commission of India
+    type: xlsx / pdf (text layer)
+    url: >
+      2023: https://www.eci.gov.in/eci-backend/public/all_files/full-statistical-reports/telangana/2023/Detailed_Results.xlsx;
+      2018: https://old.eci.gov.in/files/file/9691-telangana-general-legislative-election-2018-statistical-report/
+      (file list served only to a browser session; fetched with Playwright)
+    access: public
+    captcha: false
+    automate: true
+    states: [Telangana]
+    years_in_scope: [2018, 2023]
+    extraction_method: typed text / cells (services/ac_results.py, parsers/eci_detailed_results.py)
+    last_verified: 2026-09-26
+    notes: >
+      Constituency totals only, not booth-wise. Stored in ac_results. Each AC is
+      checked against the report's own arithmetic (general + postal = total per
+      candidate; candidates add up to the printed AC total in the PDF).
 
   ceo_uk_roll_portal_2018_2023:
     name: CEO Uttarakhand - electoral roll portal (2018-2023 editions)

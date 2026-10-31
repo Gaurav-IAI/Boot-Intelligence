@@ -17,26 +17,21 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 
 from ..analytics.intelligence import (
-    ac_observations, ac_overview, all_availability, booth_detail, default_ac_id,
+    ac_level_results, ac_observations, ocr_coverage, ac_overview, all_availability, booth_detail, default_ac_id,
     mapping_summary_all, mapping_table, quality_overview, result_detail, results_for_ac, search,
-    source_label, state_results_quality, state_summary, summarize_results,
+    source_label, state_ac_results_quality, state_ocr_coverage, state_results_overview, state_results_quality,
+    state_summary, summarize_results,
 )
 from ..config import ROOT
+from ..formatting import indian, pct
 from ..database.models import AssemblyConstituency, District, Elector, State
 from ..database.session import active_backend, get_session
 from ..states import DEFAULT_STATE, ordered_states, spec, state_by_code, state_by_name
+from .parties import party_color, party_name, same_party
 
 app = FastAPI(title="Election Data Intelligence")
 STATE_COOKIE = "state"
 templates = Jinja2Templates(directory=str(ROOT / "src" / "app" / "web" / "templates"))
-
-
-def _n(v) -> str:
-    return "—" if v is None else f"{v:,}"
-
-
-def _pct(v, digits: int = 1) -> str:
-    return "—" if v is None else f"{v:.{digits}f}%"
 
 
 def ac_label(ac: AssemblyConstituency) -> str:
@@ -45,8 +40,11 @@ def ac_label(ac: AssemblyConstituency) -> str:
     return f"AC {ac.ac_number} {ac.ac_name} ({ac.delimitation})"
 
 
-templates.env.filters["n"] = _n
-templates.env.filters["pct"] = _pct
+templates.env.filters["n"] = indian
+templates.env.filters["pct"] = pct
+templates.env.globals["party_color"] = party_color
+templates.env.globals["party_name"] = party_name
+templates.env.globals["same_party"] = same_party
 templates.env.filters["basename"] = lambda p: (p or "").replace("\\", "/").rsplit("/", 1)[-1]
 templates.env.globals["source_label"] = source_label
 templates.env.globals["ac_label"] = ac_label
@@ -102,12 +100,15 @@ def home(request: Request):
         sid = state.id if state else None
         s = state_summary(db, sid)
         featured = default_ac_id(db, sid)
-        return _render(request, "index.html", db, state, active="dashboard", s=s,
+        sr = state_results_overview(db, sid, s["availability"]) if s["acs_with_ac_results"] else None
+        return _render(request, "index.html", db, state, active="dashboard", s=s, sr=sr,
                        featured=db.get(AssemblyConstituency, featured) if featured else None,
                        mapping=mapping_summary_all(db, sid),
                        historical=[a for a in s["availability"] if not a.is_current],
                        result_acs=[a for a in s["availability"] if a.result_records],
-                       rq=state_results_quality(db, sid) if s["results"] else None)
+                       rq=state_results_quality(db, sid) if s["results"] else None,
+                       aq=state_ac_results_quality(db, sid) if s["acs_with_ac_results"] else None,
+                       oc=state_ocr_coverage(db, sid) if s["results"] else None)
 
 
 @app.get("/constituencies", response_class=HTMLResponse)
@@ -115,12 +116,12 @@ def constituencies(request: Request):
     with get_session() as db:
         state = _current_state(request, db)
         s = state_summary(db, state.id if state else None)
-        by_district: dict[int, list] = {}
-        for a in s["availability"]:
-            if a.is_current:
-                by_district.setdefault(a.district.id, []).append(a)
+        sr = state_results_overview(db, state.id if state else None, s["availability"])
         return _render(request, "constituencies.html", db, state, active="constituencies",
-                       crumbs=_crumbs(db, state, tail="Constituencies"), s=s, by_district=by_district,
+                       crumbs=_crumbs(db, state, tail="Constituencies"), s=s,
+                       current=[a for a in s["availability"] if a.is_current],
+                       latest={r.av.ac.id: r.latest for r in sr.rows},
+                       districts=sorted({a.district.district_name for a in s["availability"] if a.is_current}),
                        historical=[a for a in s["availability"] if not a.is_current])
 
 
@@ -129,11 +130,26 @@ def district(request: Request, district_id: int):
     with get_session() as db:
         d = db.get(District, district_id) or _404("district")
         state = _current_state(request, db, d)
-        avs = [a for a in all_availability(db, state_id=d.state_id) if a.district.id == d.id]
+        state_avs = all_availability(db, state_id=d.state_id)
+        avs = [a for a in state_avs if a.district.id == d.id]
+        sr = state_results_overview(db, d.state_id, state_avs)
         return _render(request, "district.html", db, state, active="constituencies",
                        crumbs=_crumbs(db, state, d), district=d,
+                       latest={r.av.ac.id: r.latest for r in sr.rows},
                        current=[a for a in avs if a.is_current],
                        historical=[a for a in avs if not a.is_current])
+
+
+@app.get("/results", response_class=HTMLResponse)
+def results_view(request: Request):
+    with get_session() as db:
+        state = _current_state(request, db)
+        sr = state_results_overview(db, state.id if state else None)
+        parties = sorted({v.winner.party for r in sr.rows for v in r.by_year.values()
+                          if v.winner and v.winner.party})
+        return _render(request, "results.html", db, state, active="results",
+                       crumbs=_crumbs(db, state, tail="Election results"), sr=sr, parties=parties,
+                       districts=sorted({r.av.district.district_name for r in sr.rows}))
 
 
 @app.get("/ac/{ac_id}", response_class=HTMLResponse)
@@ -149,9 +165,11 @@ def ac_view(request: Request, ac_id: int):
             .where(District.state_id == o.district.state_id,
                    AssemblyConstituency.ac_number == o.ac.ac_number,
                    AssemblyConstituency.delimitation == "current"))
+        ac_elections = ac_level_results(db, o.ac)
         return _render(request, "ac.html", db, state, active="constituencies",
                        crumbs=_crumbs(db, state, o.district, o.ac), o=o, av=av, same_number=same_number,
-                       observations=ac_observations(av, o.elections, roll_stats))
+                       observations=ac_observations(av, o.elections, roll_stats, ac_elections),
+                       ac_elections=ac_elections)
 
 
 @app.get("/ac/{ac_id}/performance", response_class=HTMLResponse)
@@ -163,7 +181,8 @@ def ac_performance(request: Request, ac_id: int):
         state = _current_state(request, db, d)
         return _render(request, "performance.html", db, state, active="results",
                        crumbs=_crumbs(db, state, d, ac, tail="Historical results"),
-                       ac=ac, district=d, results=results, summaries=summarize_results(results))
+                       ac=ac, district=d, results=results, summaries=summarize_results(results),
+                       ac_elections=ac_level_results(db, ac), coverage=ocr_coverage(db, ac))
 
 
 @app.get("/ac/{ac_id}/changes", response_class=HTMLResponse)

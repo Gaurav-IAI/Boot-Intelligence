@@ -2,16 +2,16 @@
 {% import "_macros.html" as ui %}
 {% block title %}{{ district.district_name }}{% endblock %}
 {% block body %}
-<div class="eyebrow">District · {{ current_state.state_name }}</div>
-<h1>{{ district.district_name|upper }}</h1>
-<div class="subhead">{{ district.district_name_local or '' }} · {{ current|length }} assembly constituencies</div>
+{% call ui.page_head(district.district_name|upper, None, ((district.district_name_local ~ ' · ') if district.district_name_local else '') ~ current|length ~ ' assembly constituencies', 'District · ' ~ current_state.state_name) %}
+  <a class="btn" href="/results">Election results</a>
+{% endcall %}
 
 <section>
   <div class="sh"><h2>Assembly constituencies</h2>{{ ui.ctx('cur', 'Current delimitation') }}</div>
   {% if current %}
-  <div class="accgrid">{% for a in current %}{{ ui.ac_card(a) }}{% endfor %}</div>
+  <div class="accgrid">{% for a in current %}{{ ui.ac_card(a, latest.get(a.ac.id)) }}{% endfor %}</div>
   {% else %}
-  <div class="panel"><p>No assembly constituencies stored for this district in the current POC.</p></div>
+  <div class="panel"><p>No assembly constituencies are stored for this district yet.</p></div>
   {% endif %}
 </section>
 

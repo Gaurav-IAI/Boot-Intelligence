@@ -1,24 +1,26 @@
 {% extends "base.html" %}
+{% import "_macros.html" as ui %}
 {% block title %}Search{% endblock %}
 {% block body %}
-<h1>SEARCH</h1>
-<form action="/search" method="get" class="card mt" style="display:flex;gap:10px;flex-wrap:wrap">
-  <input name="q" value="{{ search_q or '' }}" autofocus placeholder="Search constituency, polling station or part number"
-         style="flex:1 1 260px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font:inherit;min-width:0">
+{{ ui.page_head('SEARCH', None, 'Constituencies, polling stations and part numbers in ' ~ (current_state.state_name if current_state else 'this state')) }}
+<form action="/search" method="get" class="finder" role="search">
+  <input name="q" value="{{ search_q or '' }}" autofocus placeholder="Search constituency, polling station or part number" aria-label="Search">
   <button class="btn primary" type="submit">Search</button>
 </form>
 
 {% if search_q %}
 <section>
-  <div class="sh"><h2>{{ hits|length }} result{{ 's' if hits|length != 1 }} for “{{ search_q }}”</h2></div>
+  <div class="sh"><h2>{{ hits|length }} result{{ 's' if hits|length != 1 }} for “{{ search_q }}”</h2>
+    {% if hits %}<span class="chips">{% for g in hits|groupby('kind') %}<a class="chip plain" href="#kind-{{ loop.index }}">{{ g.grouper }} · {{ g.list|length }}</a>{% endfor %}</span>{% endif %}</div>
   {% if hits %}
+  {% for g in hits|groupby('kind') %}
+  <div class="sh mt" id="kind-{{ loop.index }}"><h3 style="margin:0">{{ g.grouper }}</h3><span class="muted small">{{ g.list|length }}</span></div>
   <div class="tablecard">
   <table>
-    <thead><tr><th>Type</th><th>Result</th><th>Where</th><th>Data</th></tr></thead>
+    <thead><tr><th>Result</th><th>Where</th><th>Data</th></tr></thead>
     <tbody>
-    {% for h in hits %}
+    {% for h in g.list %}
     <tr data-href="{{ h.href }}">
-      <td><span class="chip plain">{{ h.kind }}</span></td>
       <td><a href="{{ h.href }}"><strong>{{ h.title }}</strong></a></td>
       <td class="muted small">{{ h.subtitle }}</td>
       <td class="small">{{ h.detail }}</td>
@@ -27,9 +29,14 @@
     </tbody>
   </table>
   </div>
+  {% endfor %}
   {% else %}
-  <div class="panel"><p>No constituency, polling station or part matches “{{ search_q }}”.</p></div>
+  <div class="panel"><p>No constituency, polling station or part matches “{{ search_q }}”. Try a constituency name
+    (e.g. Raipur), an AC number, or “Part 12”.</p></div>
   {% endif %}
 </section>
+{% else %}
+<section><div class="panel"><p>Type a constituency name (e.g. <a href="/search?q=Raipur">Raipur</a>), an AC number, or a part
+  number such as <a href="/search?q=Part%2012">Part 12</a>.</p></div></section>
 {% endif %}
 {% endblock %}

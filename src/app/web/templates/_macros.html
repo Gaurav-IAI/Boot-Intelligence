@@ -6,6 +6,34 @@
 
 {% macro ctx(kind, text) -%}<span class="ctx {{ kind }}">{{ text }}</span>{%- endmacro %}
 
+{# a party: colour dot + abbreviation, full name on hover; the colour is never the only label #}
+{% macro party(abbr, size='') -%}
+<span class="party {{ size }}" title="{{ party_name(abbr) }}"><i style="background:{{ party_color(abbr) }}" aria-hidden="true"></i>{{ abbr or '—' }}</span>
+{%- endmacro %}
+
+{% set TERMS = {
+  'Form 20': 'The official result sheet listing the votes counted at every polling station',
+  'ECI': 'Election Commission of India',
+  'SIR-2026': 'Special Intensive Revision 2026: the current official list of polling stations',
+  'Part': 'The number of a polling station within its constituency (one part of the electoral roll)',
+  'NOTA': 'None of the Above',
+  'Postal': 'Votes cast by postal ballot rather than on a voting machine',
+  'General': 'Votes cast on electronic voting machines at polling stations',
+} %}
+{% macro term(word, label=None) -%}
+<abbr class="term" title="{{ TERMS.get(word, word) }}">{{ label or word }}</abbr>
+{%- endmacro %}
+
+{# page header: context tag, title, subtitle; actions go in a call block #}
+{% macro page_head(title, tag=None, subtitle=None, eyebrow=None) -%}
+<div class="pagehead"><div class="ph-main">
+  {% if eyebrow %}<div class="eyebrow">{{ eyebrow }}</div>{% endif %}
+  {% if tag %}{{ tag }}{% endif %}
+  <h1>{{ title }}</h1>
+  {% if subtitle %}<div class="subhead">{{ subtitle }}</div>{% endif %}
+</div>{% if caller %}<div class="actions" style="margin-top:0">{{ caller() }}</div>{% endif %}</div>
+{%- endmacro %}
+
 {% macro kpi(value, label, sub=None, text=False, tone='') -%}
 <div class="kpi {{ tone }}">
   <div class="v{{ ' txt' if text }}">{{ value }}</div>
@@ -30,7 +58,7 @@
 </tbody></table>
 {%- endmacro %}
 
-{% macro ac_card(a) -%}
+{% macro ac_card(a, won=None) -%}
 {% set cur = a.is_current %}
 <a class="acc{{ '' if cur else ' hist' }}" href="/ac/{{ a.ac.id }}">
   {% if not cur %}<span class="ctx hist">Historical — {{ a.ac.delimitation }}</span>{% endif %}
@@ -39,15 +67,16 @@
   {% if a.ac.ac_name_local and a.ac.ac_name_local != a.ac.ac_name %}<div class="local">{{ a.ac.ac_name_local }}</div>{% endif %}
   {% if cur %}
     {% if a.current_stations %}<div class="main">{{ a.current_stations|n }} polling stations</div>
-    {% else %}<div class="main na">Polling stations not yet ingested</div>{% endif %}
+    {% else %}<div class="main na">Polling stations not loaded yet</div>{% endif %}
+    {% if won and won.winner %}<div class="won">{{ won.year }} winner: {{ party(won.winner.party) }} {{ won.winner.candidate_name|title }}</div>{% endif %}
     <ul>
-      <li class="{{ 'yes' if a.result_records else 'no' }}">{{ (a.result_years|join(', ') ~ ' results available') if a.result_records else 'Historical results: not available' }}</li>
-      <li class="{{ 'yes' if a.current_roll_records else 'no' }}">Current voter roll: {{ 'available' if a.current_roll_records else 'not available' }}</li>
+      <li class="{{ 'yes' if a.election_years else 'no' }}">{{ (a.election_years|join(', ') ~ ' results available') if a.election_years else 'Historical results: not available' }}</li>
+      {% if a.current_roll_records %}<li class="yes">Current voter roll: {{ a.current_roll_records|n }} records</li>{% endif %}
     </ul>
   {% else %}
     <div class="main">{{ a.historical_stations }} historical parts</div>
     <ul>
-      <li class="{{ 'yes' if a.historical_roll_records else 'no' }}">{{ (a.roll_years|join(', ') ~ ' roll — ' ~ a.historical_roll_records|n ~ ' records') if a.historical_roll_records else 'Historical roll: not ingested' }}</li>
+      <li class="{{ 'yes' if a.historical_roll_records else 'no' }}">{{ (a.roll_years|join(', ') ~ ' roll — ' ~ a.historical_roll_records|n ~ ' records') if a.historical_roll_records else 'Historical roll: not loaded' }}</li>
       <li class="{{ 'yes' if a.result_records else 'no' }}">Historical results: {{ 'available' if a.result_records else 'not available' }}</li>
     </ul>
   {% endif %}

@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Election results{% endblock %}
+{% block body %}
+{% set sname = current_state.state_name if current_state else 'this state' %}
+{% set total = sr.rows|length %}
+{% call ui.page_head('ELECTION RESULTS', None, sname ~ ' Vidhan Sabha' ~ ((' · ' ~ sr.years|join(', ')) if sr.years else '')) %}
+  <a class="btn" href="/constituencies">All constituencies</a>
+{% endcall %}
+
+{% if not sr.years %}
+<section><div class="panel"><p>No election results are loaded for {{ sname }} yet.</p></div></section>
+{% else %}
+
+{% if sr.tallies %}
+<section>
+  <div class="sh"><h2>Seats won</h2><span class="muted small">Constituency results from the {{ ui.term('ECI') }} statistical reports · majority is {{ total // 2 + 1 }} of {{ total }}</span></div>
+  <div class="tallies">
+  {% for t in sr.tallies|reverse %}{% include "_tally.html" %}
+  {% endfor %}
+  </div>
+</section>
+{% else %}
+<section><div class="panel"><p>Seat counts need the {{ ui.term('ECI') }} constituency-wise report, which is not loaded for
+  {{ sname }}. Polling-station results ({{ ui.term('Form 20') }}) are available per constituency below; nothing is
+  estimated from them.</p></div></section>
+{% endif %}
+
+<section>
+  {% set ys = sr.years %}{% set aly = sr.ac_years %}
+  {% set change = aly|length > 1 %}
+  <div class="sh"><h2>Results by constituency</h2><span class="muted small">Click a row for the constituency's full results</span></div>
+  <div class="tablecard">
+    <div class="tools" data-for="restable">
+      <input type="search" placeholder="Search constituency, candidate or AC number" aria-label="Search constituencies">
+      <select data-filter="district" aria-label="District"><option value="">All districts</option>
+        {% for d in districts %}<option value="{{ d|replace(' ', '_') }}">{{ d }}</option>{% endfor %}</select>
+      {% if parties %}<select data-filter="parties" aria-label="Winning party"><option value="">Any winning party</option>
+        {% for p in parties %}<option value="{{ p }}">{{ p }} — {{ party_name(p) }}</option>{% endfor %}</select>{% endif %}
+      <span class="count" data-count></span>
+    </div>
+    <div class="scroll-y" style="max-height:640px">
+    <table class="sortable" id="restable">
+      <thead><tr><th class="num" data-type="num" style="width:60px">AC</th><th data-type="text">Constituency</th>
+        {% for y in ys %}<th data-type="text">{{ y }}</th>{% endfor %}
+        {% if change %}<th data-type="text">{{ aly[-2] }} → {{ aly[-1] }}</th>{% endif %}</tr></thead>
+      <tbody>
+      {% for r in sr.rows %}{% set a = r.av %}
+      {% set won = r.by_year.values()|map(attribute='winner')|select|map(attribute='party')|list %}
+      <tr data-href="/ac/{{ a.ac.id }}" data-district="{{ a.district.district_name|replace(' ', '_') }}" data-parties="{{ won|unique|join(' ') }}"
+          data-search="{{ (a.ac.ac_number|string ~ ' ' ~ a.ac.ac_name ~ ' ' ~ (a.ac.ac_name_local or '') ~ ' ' ~ a.district.district_name ~ ' ' ~ (r.by_year.values()|map(attribute='winner')|select|map(attribute='candidate_name')|join(' ')))|lower }}">
+        <td class="num" data-v="{{ a.ac.ac_number }}"><strong>{{ a.ac.ac_number }}</strong></td>
+        <td><a href="/ac/{{ a.ac.id }}"><strong>{{ a.ac.ac_name }}</strong></a><span class="sub">{{ a.district.district_name }}</span></td>
+        {% for y in ys %}{% set e = r.by_year.get(y) %}
+        <td data-v="{{ e.winner.party if e and e.winner else ('~' if y in a.result_years else '~~') }}">
+          {% if e and e.winner %}
+          <a class="yrcell" href="/ac/{{ a.ac.id }}/performance#election-{{ y }}" style="color:inherit">
+            <span>{{ ui.party(e.winner.party) }}{% if not e.verified %} {{ ui.chip('warn', 'Review', e.note) }}{% endif %}</span>
+            <small>{{ e.winner.candidate_name }}</small>
+            {% if e.margin is not none %}<small>by {{ e.margin|n }}</small>{% endif %}</a>
+          {% elif y in a.result_years %}
+          <a class="small" href="/ac/{{ a.ac.id }}/performance#election-{{ y }}">Booth results</a>
+          {% else %}<span class="muted">—</span>{% endif %}
+        </td>
+        {% endfor %}
+        {% if change %}{% set p1 = r.by_year.get(aly[-2]) %}{% set p2 = r.by_year.get(aly[-1]) %}
+        <td>{% if p1 and p2 and p1.winner and p2.winner %}
+          {% if same_party(p1.winner.party, p2.winner.party) %}<span class="muted small">Held by {{ p2.winner.party }}{% if p1.winner.party != p2.winner.party %} (formerly {{ p1.winner.party }}){% endif %}</span>
+          {% else %}<span class="small"><strong>{{ p2.winner.party }}</strong> gain from {{ p1.winner.party }}</span>{% endif %}
+          {% else %}<span class="muted">—</span>{% endif %}</td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+  {% if sr.unlinked %}<p class="muted small mt">{{ sr.unlinked }} constituency result{{ 's' if sr.unlinked != 1 }} could not be tied to a current constituency and {{ 'are' if sr.unlinked != 1 else 'is' }} not shown.</p>{% endif %}
+</section>
+{% endif %}
+{% endblock %}

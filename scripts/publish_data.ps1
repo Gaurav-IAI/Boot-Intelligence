@@ -14,6 +14,14 @@
   powershell -ExecutionPolicy Bypass -File scripts\publish_data.ps1
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File scripts\publish_data.ps1 -NoPush
+.EXAMPLE
+  powershell -ExecutionPolicy Bypass -File scripts\publish_data.ps1 -State Telangana
+  (writes deploy\tg_data.sqlite3.gz)
+.EXAMPLE
+  powershell -ExecutionPolicy Bypass -File scripts\publish_data.ps1 -State Uttarakhand
+  (writes data\exports\uk_data.sqlite3.gz and does NOT commit it: Uttarakhand's export holds
+  elector records from the 2003 roll, and the repository is public. Hand the file to the
+  server team privately; see docs/DEPLOYMENT.md, "Uttarakhand data".)
 #>
 param(
     [string]$State = "Uttar Pradesh",
@@ -30,13 +38,28 @@ $env:PYTHONPATH = "src"
 $env:PYTHONIOENCODING = "utf-8"
 
 $slug = ($State.ToLower() -replace '[^a-z]+', ' ').Trim().Split(' ') | ForEach-Object { $_[0] }
-$out = "deploy\" + (-join $slug) + "_data.sqlite3.gz"          # "Uttar Pradesh" -> deploy\up_data.sqlite3.gz
-New-Item -ItemType Directory -Force deploy | Out-Null
+$short = @{ "telangana" = "tg"; "uttarakhand" = "uk" }[$State.ToLower()]   # one-word names: a readable code
+if (-not $short) { $short = -join $slug }
+# A state whose export carries personal data (elector records) never goes into the public
+# repository: its file is written outside git and handed to the server team privately.
+$private = @("uttarakhand") -contains $State.ToLower()
+$dir = if ($private) { "data\exports" } else { "deploy" }
+$out = "$dir\" + $short + "_data.sqlite3.gz"                    # "Uttar Pradesh" -> deploy\up_data.sqlite3.gz
+New-Item -ItemType Directory -Force $dir | Out-Null
 $source = "sqlite:///" + ((Join-Path $root $Database) -replace '\\', '/')
 
 Write-Host "1/2 exporting $State from $Database -> $out"
 & $py -m app export-state --state $State --from $source --out $out
 if ($LASTEXITCODE -ne 0) { throw "export-state failed" }
+
+if ($private) {
+    $mb = [math]::Round((Get-Item $out).Length / 1MB, 1)
+    Write-Host ""
+    Write-Host "wrote $out ($mb MB). Not committed: it holds elector records and the repository is public." -ForegroundColor Yellow
+    Write-Host "Send it to the server team privately (not by GitHub), then on the server:"
+    Write-Host "  sudo STATE_FILE=/root/$($short)_data.sqlite3.gz bash /var/www/Boot-Intelligence/scripts/deploy/update_server.sh"
+    exit 0
+}
 
 Write-Host "2/2 committing $out"
 git add -f $out

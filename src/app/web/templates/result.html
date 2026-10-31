@@ -3,8 +3,9 @@
 {% block title %}Part {{ r.part_number }} · {{ r.year }} result{% endblock %}
 {% block body %}
 {% set m = r.margin %}
-{{ ui.ctx('hist', 'Historical result — ' ~ r.year) }}
-<h1>PART {{ r.part_number }}</h1>
+{% call ui.page_head('PART ' ~ r.part_number, ui.ctx('hist', 'Historical result — ' ~ r.year)) %}
+  {% if ac %}<a class="btn" href="/ac/{{ ac.id }}/performance#election-{{ r.year }}">← All {{ r.year }} booth results</a>{% endif %}
+{% endcall %}
 <div class="subhead">{{ r.station_name or '—' }}</div>
 <div class="subhead small mt">{% if ac %}<a href="/ac/{{ ac.id }}">{{ ac_label(ac) }}</a> · {% endif %}{{ r.year }} Vidhan Sabha election ·
   {{ r.year }} booth numbering — not current (2026) Part {{ r.part_number }}</div>
@@ -38,7 +39,7 @@
     <thead><tr><th>Candidate (as printed)</th><th>Party</th><th class="num">Votes</th></tr></thead>
     <tbody>
     {% for c, v in r.named_columns|sort(attribute='1', reverse=true) %}
-    <tr><td>{{ c.name }}</td><td>{{ c.party or '—' }}</td><td class="num">{{ v|n }}</td></tr>
+    <tr><td>{{ c.name }}</td><td>{% if c.party %}{{ ui.party(c.party) }}{% else %}—{% endif %}</td><td class="num">{{ v|n }}</td></tr>
     {% endfor %}
     {% if r.nota_votes is not none %}<tr><td class="muted">NOTA</td><td></td><td class="num">{{ r.nota_votes|n }}</td></tr>{% endif %}
     </tbody>
@@ -47,7 +48,7 @@
 </section>
 {% endif %}
 
-{% if ac %}<div class="actions"><a class="btn" href="/ac/{{ ac.id }}/performance">← All {{ r.year }} results</a></div>{% endif %}
+{% if ac %}<div class="actions"><a class="btn" href="/ac/{{ ac.id }}/performance#election-{{ r.year }}">← All {{ r.year }} results</a></div>{% endif %}
 
 <section>
   <details class="prov">

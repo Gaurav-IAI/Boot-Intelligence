@@ -1,0 +1,20 @@
+{# Seats won in one election. Expects `t` (SeatTally), `total` (current constituencies) and `ui`. #}
+{% set top = t.seats[0] if t.seats else None %}
+<div class="card">
+  <div class="sh" style="margin-bottom:8px"><h3 style="margin:0">{{ t.year }} Assembly election</h3>
+    <span class="muted small">{{ t.verified }} of {{ total }} results</span></div>
+  {% if top %}<p class="small" style="margin:0 0 12px">{{ ui.party(top[0]) }}
+    {% if top[1] >= total // 2 + 1 %}won a majority with <strong>{{ top[1] }}</strong> of {{ total }} seats{% else %}won the most seats ({{ top[1] }} of {{ total }}), short of a majority{% endif %}.</p>{% endif %}
+  <div class="seats">
+    {% for p, n in t.seats %}
+    <div class="seat" title="{{ party_name(p) }}: {{ n }} seat{{ 's' if n != 1 }}">
+      {{ ui.party(p) }}
+      <div class="track"><span class="fill" style="width:{{ n / total * 100 }}%;background:{{ party_color(p) }}"></span></div>
+      <div class="amt">{{ n }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% if t.unverified %}<p class="muted small mt" style="margin-bottom:0">{{ ui.chip('warn', 'Review required') }} {{ t.unverified }}
+    constituency result{{ 's' if t.unverified != 1 }} fail the report's own arithmetic and {{ 'are' if t.unverified != 1 else 'is' }} not counted.</p>{% endif %}
+  {% if t.verified + t.unverified < total %}<p class="muted small mt" style="margin-bottom:0">{{ total - t.verified - t.unverified }} constituencies have no result loaded for {{ t.year }}.</p>{% endif %}
+</div>

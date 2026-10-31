@@ -27,7 +27,7 @@ from sqlalchemy import Engine, create_engine, delete, func, or_, select, text
 
 from ..database.migrations import apply_additive_migrations
 from ..database.models import (
-    AssemblyConstituency, Base, District, Election, ElectionResult, ElectoralRoll, Elector,
+    AcResult, AssemblyConstituency, Base, District, Election, ElectionResult, ElectoralRoll, Elector,
     PartMapping, PollingStation, SourceFetch, State,
 )
 from ..states import spec
@@ -35,7 +35,7 @@ from ..states import spec
 BATCH = 5000
 # parents before children; every table an exported state's rows live in
 TABLES = [State, District, AssemblyConstituency, PollingStation, ElectoralRoll, Elector,
-          Election, ElectionResult, PartMapping, SourceFetch]
+          Election, ElectionResult, AcResult, PartMapping, SourceFetch]
 # column -> the table whose id it holds
 LINKS = {
     District: {"state_id": State},
@@ -45,6 +45,7 @@ LINKS = {
     Elector: {"polling_station_id": PollingStation, "electoral_roll_id": ElectoralRoll,
               "duplicate_of_id": Elector},
     ElectionResult: {"election_id": Election, "ac_id": AssemblyConstituency},
+    AcResult: {"election_id": Election, "ac_id": AssemblyConstituency},
     PartMapping: {"state_id": State},
 }
 
@@ -85,6 +86,7 @@ def _scopes(names: list[str]) -> dict:
         Elector: Elector.polling_station_id.in_(stations),
         Election: Election.id.in_(elections),
         ElectionResult: ElectionResult.election_id.in_(elections),
+        AcResult: AcResult.election_id.in_(elections),
         PartMapping: PartMapping.state_id.in_(states),
         SourceFetch: or_(*[SourceFetch.source.like(p + "%") for p in prefixes]) if prefixes else False,
     }
