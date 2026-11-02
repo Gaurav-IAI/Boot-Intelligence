@@ -11,6 +11,11 @@ header (`?state=<code>`, remembered in a cookie), defaulting to Uttarakhand.
 """
 from __future__ import annotations
 
+import logging
+import threading
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -29,7 +34,28 @@ from ..database.session import active_backend, get_session
 from ..states import DEFAULT_STATE, ordered_states, spec, state_by_code, state_by_name
 from .parties import party_color, party_name, same_party
 
-app = FastAPI(title="Election Data Intelligence")
+log = logging.getLogger(__name__)
+
+
+def _warm_caches() -> None:
+    """Run the slow whole-state calculations once, so no visitor waits for them after a restart."""
+    try:
+        with get_session() as db:
+            for st in ordered_states(db):
+                all_availability(db, state_id=st.id)
+                default_ac_id(db, st.id)
+                state_results_quality(db, st.id)
+    except Exception:
+        log.exception("cache warm-up failed; pages will calculate on first view instead")
+
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
+    threading.Thread(target=_warm_caches, name="warm-caches", daemon=True).start()
+    yield
+
+
+app = FastAPI(title="Election Data Intelligence", lifespan=_lifespan)
 STATE_COOKIE = "state"
 templates = Jinja2Templates(directory=str(ROOT / "src" / "app" / "web" / "templates"))
 

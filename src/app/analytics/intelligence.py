@@ -22,11 +22,14 @@ from __future__ import annotations
 import json
 import re
 import statistics
+import threading
 import unicodedata
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import TypeVar
 
-from sqlalchemy import Select, and_, case, func, or_, select
+from sqlalchemy import Select, and_, case, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from ..database.models import (
@@ -103,6 +106,41 @@ def _state_mapping_rows(db: Session, state_id: int | None) -> list[PartMapping]:
 
 def pct(n: float | None, d: float | None) -> float | None:
     return (n / d * 100.0) if (n is not None and d) else None
+
+
+# --- reuse of whole-state calculations --------------------------------------
+_T = TypeVar("_T")
+_MEMO: dict[tuple, tuple[object, object]] = {}
+_MEMO_LOCKS: dict[tuple, threading.Lock] = {}
+
+
+def _data_version(db: Session) -> str | None:
+    """PostgreSQL's write position: it moves with every write to the database, including an
+    uncommitted or rolled-back one, and reading it costs almost nothing. None on SQLite."""
+    if db.get_bind().dialect.name != "postgresql":
+        return None
+    return db.scalar(text("SELECT pg_current_wal_insert_lsn()::text"))
+
+
+def _memo(db: Session, name: str, key: object, compute: Callable[[], _T], stamp: object = None) -> _T:
+    """`compute()`, reused until the database changes (or `stamp`, for inputs kept outside it).
+    The result is shared between requests, so callers must not modify it or keep ORM objects in
+    it. The version is read first: a write landing during `compute` only causes a recompute."""
+    version = _data_version(db)
+    if version is None:
+        return compute()
+    version = (version, stamp)
+    k = (str(db.get_bind().url), name, key)
+    hit = _MEMO.get(k)
+    if hit and hit[0] == version:
+        return hit[1]
+    with _MEMO_LOCKS.setdefault(k, threading.Lock()):   # concurrent visitors compute it once
+        hit = _MEMO.get(k)
+        if hit and hit[0] == version:
+            return hit[1]
+        value = compute()
+        _MEMO[k] = (version, value)
+        return value
 
 
 # ==========================================================================
@@ -294,6 +332,13 @@ def bridge_via_2024_list(to_part_number: int, building_2025: str | None, rows_20
 
 
 _BRIDGE_CACHE: dict[str, tuple[float, list[dict]]] = {}
+
+
+def _ps_list_2024_stamp() -> tuple:
+    """Changes when the pipeline rewrites a 2024 list, which lives in a file, not the database."""
+    from ..config import settings
+    return tuple(sorted((p.name, p.stat().st_mtime)
+                        for p in (settings.processed_dir / "ocr").glob("ps_list_2024_AC*.json")))
 
 
 def load_ps_list_2024_rows(ac_number: int) -> list[dict] | None:
@@ -634,8 +679,14 @@ def station_label(s: PollingStation) -> str:
 
 def evaluate_mappings(db: Session, state_id: int | None = None) -> list[MappingView]:
     """The official part mappings of one state (default: the booth state), each checked
-    against that state's SIR-2026 stations."""
+    against that state's SIR-2026 stations. The name matching is too slow to repeat for every
+    page, and the views hold plain values, so one result serves until the data changes."""
     sid = scope_state_id(db, state_id)
+    return _memo(db, "evaluate_mappings", sid, lambda: _evaluate_mappings(db, sid),
+                 stamp=_ps_list_2024_stamp())
+
+
+def _evaluate_mappings(db: Session, sid: int | None) -> list[MappingView]:
     rows = _state_mapping_rows(db, sid)
     if not rows:
         return []
@@ -1579,6 +1630,10 @@ def default_ac_id(db: Session, state_id: int | None = None) -> int | None:
     """Navigation default within a state: the AC with official booth mapping, else the most
     results or stations. None when the state has no booth-level data."""
     sid = scope_state_id(db, state_id)
+    return _memo(db, "default_ac_id", sid, lambda: _default_ac_id(db, sid))
+
+
+def _default_ac_id(db: Session, sid: int | None) -> int | None:
     in_state = AssemblyConstituency.id.in_(_state_ac_ids(db, sid))
     counts = Counter(m.to_ac_number for m in _state_mapping_rows(db, sid) if m.to_ac_number is not None)
     if counts:
@@ -1690,6 +1745,39 @@ class AcAvailability:
         ]
 
 
+def _availability_counts(db: Session) -> dict[str, list]:
+    """The counts behind `all_availability`, over the whole database: reading them scans every
+    result row, so one read serves until the data changes."""
+    return {
+        "stations": db.execute(select(PollingStation.ac_id, PollingStation.edition, func.count())
+                               .group_by(PollingStation.ac_id, PollingStation.edition)).all(),
+        "electors": db.execute(
+            select(PollingStation.ac_id, PollingStation.edition, func.count(Elector.id))
+            .join(Elector, Elector.polling_station_id == PollingStation.id)
+            .group_by(PollingStation.ac_id, PollingStation.edition)).all(),
+        "rolls": db.execute(
+            select(PollingStation.ac_id, ElectoralRoll.roll_year, func.count(ElectoralRoll.id))
+            .join(ElectoralRoll, ElectoralRoll.polling_station_id == PollingStation.id)
+            .where(PollingStation.edition != EDITION_CURRENT,
+                   ElectoralRoll.extraction_status == "extracted")
+            .group_by(PollingStation.ac_id, ElectoralRoll.roll_year)).all(),
+        "current_by_number": db.execute(
+            select(AssemblyConstituency.ac_number, AssemblyConstituency.id, State.state_name)
+            .join(District, AssemblyConstituency.district_id == District.id)
+            .join(State, District.state_id == State.id)
+            .where(AssemblyConstituency.delimitation == DELIM_CURRENT)).all(),
+        "results": db.execute(
+            select(ElectionResult.ac_id, ElectionResult.ac_number, Election.state,
+                   Election.election_year, func.count())
+            .join(Election, ElectionResult.election_id == Election.id)
+            .group_by(ElectionResult.ac_id, ElectionResult.ac_number, Election.state,
+                      Election.election_year)).all(),
+        "ac_results": db.execute(select(AcResult.ac_id, Election.election_year)
+                                 .join(Election, AcResult.election_id == Election.id)
+                                 .where(AcResult.ac_id.is_not(None)).distinct()).all(),
+    }
+
+
 def all_availability(db: Session, ac_ids: list[int] | None = None,
                      state_id: int | None = None) -> list[AcAvailability]:
     """Availability for the given ACs, or for every AC of one state (default state)."""
@@ -1705,52 +1793,33 @@ def all_availability(db: Session, ac_ids: list[int] | None = None,
     if not avs:
         return []
 
-    for ac_id, ed, n in db.execute(select(PollingStation.ac_id, PollingStation.edition, func.count())
-                                   .group_by(PollingStation.ac_id, PollingStation.edition)):
+    counts = _memo(db, "availability_counts", None, lambda: _availability_counts(db))
+    for ac_id, ed, n in counts["stations"]:
         if ac_id in avs:
             if ed == EDITION_CURRENT:
                 avs[ac_id].current_stations += n
             else:
                 avs[ac_id].historical_stations += n
-    for ac_id, ed, n in db.execute(
-            select(PollingStation.ac_id, PollingStation.edition, func.count(Elector.id))
-            .join(Elector, Elector.polling_station_id == PollingStation.id)
-            .group_by(PollingStation.ac_id, PollingStation.edition)):
+    for ac_id, ed, n in counts["electors"]:
         if ac_id in avs:
             if ed == EDITION_CURRENT:
                 avs[ac_id].current_roll_records += n
             else:
                 avs[ac_id].historical_roll_records += n
-    for ac_id, year, n in db.execute(
-            select(PollingStation.ac_id, ElectoralRoll.roll_year, func.count(ElectoralRoll.id))
-            .join(ElectoralRoll, ElectoralRoll.polling_station_id == PollingStation.id)
-            .where(PollingStation.edition != EDITION_CURRENT,
-                   ElectoralRoll.extraction_status == "extracted")
-            .group_by(PollingStation.ac_id, ElectoralRoll.roll_year)):
+    for ac_id, year, n in counts["rolls"]:
         if ac_id in avs:
             avs[ac_id].historical_parts_with_roll += n
             avs[ac_id].roll_years = sorted(set(avs[ac_id].roll_years) | {year})
 
     # results: by ac_id, or by number for rows not yet linked (current delimitation of the
     # election's own state only — every state has an AC with the same number)
-    current_by_number = {(st_name, n): i for n, i, st_name in db.execute(
-        select(AssemblyConstituency.ac_number, AssemblyConstituency.id, State.state_name)
-        .join(District, AssemblyConstituency.district_id == District.id)
-        .join(State, District.state_id == State.id)
-        .where(AssemblyConstituency.delimitation == DELIM_CURRENT))}
-    for ac_id, ac_number, st_name, year, n in db.execute(
-            select(ElectionResult.ac_id, ElectionResult.ac_number, Election.state,
-                   Election.election_year, func.count())
-            .join(Election, ElectionResult.election_id == Election.id)
-            .group_by(ElectionResult.ac_id, ElectionResult.ac_number, Election.state,
-                      Election.election_year)):
+    current_by_number = {(st_name, n): i for n, i, st_name in counts["current_by_number"]}
+    for ac_id, ac_number, st_name, year, n in counts["results"]:
         target = ac_id if ac_id is not None else current_by_number.get((st_name, ac_number))
         if target in avs:
             avs[target].result_records += n
             avs[target].result_years = sorted(set(avs[target].result_years) | {year})
-    for ac_id, year in db.execute(select(AcResult.ac_id, Election.election_year)
-                                  .join(Election, AcResult.election_id == Election.id)
-                                  .where(AcResult.ac_id.is_not(None)).distinct()):
+    for ac_id, year in counts["ac_results"]:
         if ac_id in avs:
             avs[ac_id].ac_result_years = sorted(set(avs[ac_id].ac_result_years) | {year})
 
@@ -1841,8 +1910,13 @@ _CHECKS_CACHE: dict[tuple, list] = {}
 
 def _cached_checks(db: Session, state_id: int | None) -> list[ResultCheck]:
     """`result_checks`, reused while the state's rows are unchanged. Results are only ever
-    replaced by delete + insert, so the (row count, highest id) pair changes with any write."""
+    replaced by delete + insert, so the (row count, highest id) pair changes with any write.
+    That pair takes a scan of the state's rows, so it is only re-read when the database moved."""
     name = _scope_state_name(db, state_id)
+    return _memo(db, "result_checks", name, lambda: _checks_for_current_rows(db, state_id, name))
+
+
+def _checks_for_current_rows(db: Session, state_id: int | None, name: str) -> list[ResultCheck]:
     key = (str(db.get_bind().url), name) + tuple(db.execute(
         select(func.count(ElectionResult.id), func.max(ElectionResult.id))
         .join(Election, ElectionResult.election_id == Election.id)
